@@ -11,7 +11,7 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-const VERSION = "v1.4.0";
+const VERSION = "v1.4.1";
 
 const dbPath = path.resolve(__dirname, 'users.db');
 const db = new sqlite3.Database(dbPath, (err) => {
@@ -62,7 +62,6 @@ let rooms = {};
 io.on('connection', (socket) => {
     console.log('接続:', socket.id);
 
-    // クライアントの再接続時にIDからユーザー情報を復元
     socket.on('restoreSession', (userId, callback) => {
         db.get(`SELECT id, username, rating FROM users WHERE id = ?`, [userId], (err, row) => {
             if (err || !row) {
@@ -88,7 +87,7 @@ io.on('connection', (socket) => {
                 p1.join(roomId);
                 p2.join(roomId);
 
-                const gameState = {
+                    const gameState = {
                     roomId,
                     version: VERSION,
                     players: [
@@ -117,7 +116,6 @@ io.on('connection', (socket) => {
         if (waitingPlayer === socket) waitingPlayer = null;
     });
 
-    // パス機能の処理
     socket.on('requestPass', ({ roomId, pass }) => {
         const room = rooms[roomId];
         if (!room || room.isReviewing || room.isGameOver) return;
@@ -127,7 +125,6 @@ io.on('connection', (socket) => {
 
         player.passRequested = pass;
 
-        // 両者ともにパスが押されているか確認
         const bothPassed = room.players.every(p => p.passRequested);
         if (bothPassed) {
             room.players.forEach(p => p.passRequested = false);
@@ -175,19 +172,22 @@ io.on('connection', (socket) => {
             if (Math.abs(result - 15) < 1e-9) {
                 player.score++;
                 room.isReviewing = true;
-                room.players.forEach(p => p.passRequested = false); // ラウンド決着時はパスリセット
+                room.players.forEach(p => p.passRequested = false);
                 room.message = `🎉 ${player.username} が正解！ 「${expression} = 15」`;
                 io.to(roomId).emit('updateState', room);
 
                 setTimeout(() => {
                     if (!rooms[roomId]) return;
 
+                    // ラウンド（またはセット内ポイント）が3点に達したとき
                     if (player.score >= 3) {
-                        player.sets++;
-                        room.players.forEach(p => p.score = 0);
+                        player.sets++; // セット獲得
+                        room.players.forEach(p => p.score = 0); // ラウンドスコアリセット
 
-                        if (room.currentSet >= 3 || room.players.some(p => p.sets >= 2)) {
+                        // どちらかが 2セット先取 した場合、または 3セット目が終わった場合
+                        if (player.sets >= 2 || room.currentSet >= 3) {
                             room.isGameOver = true;
+                            // 勝者の決定（setsが多い方）
                             const winner = room.players[0].sets > room.players[1].sets ? room.players[0] : room.players[1];
                             const loser = room.players.find(p => p.id !== winner.id);
 
@@ -201,6 +201,7 @@ io.on('connection', (socket) => {
                             });
                             return;
                         } else {
+                            // 次のセットへ移行
                             room.currentSet++;
                             room.message = `【セット ${room.currentSet} 開始】前セット勝者: ${player.username}！`;
                         }
