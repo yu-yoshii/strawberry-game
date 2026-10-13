@@ -11,7 +11,7 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-const VERSION = "v1.3.0";
+const VERSION = "v1.3.1";
 
 // データベースのセットアップ（データ永続化）
 const dbPath = path.resolve(__dirname, 'users.db');
@@ -45,13 +45,12 @@ app.post('/api/login', (req, res) => {
 });
 
 // レートを更新してデータベースに保存する関数
-// 勝ったときは大きくプラス (+24)、負けたときは小さくマイナス (-12)
 function updateRating(userId, isWinner, callback) {
     db.get(`SELECT rating FROM users WHERE id = ?`, [userId], (err, row) => {
         if (err || !row) return;
         let currentRating = row.rating;
         const change = isWinner ? 24 : -12; // 勝ち＋24、負け－12
-        let newRating = Math.max(100, currentRating + change); // 最低100
+        let newRating = Math.max(100, currentRating + change);
 
         db.run(`UPDATE users SET rating = ? WHERE id = ?`, [newRating, userId], () => {
             if (callback) callback(newRating);
@@ -146,25 +145,30 @@ io.on('connection', (socket) => {
                 setTimeout(() => {
                     if (!rooms[roomId]) return;
 
+                    // 3ラウンド先取でセット勝利
                     if (player.score >= 3) {
                         player.sets++;
-                        room.players.forEach(p => p.score = 0);
+                        room.players.forEach(p => p.score = 0); // ラウンドスコアリセット
 
+                        // 2セット先取、または3セット目が終了したか
                         if (room.currentSet >= 3 || room.players.some(p => p.sets >= 2)) {
                             room.isGameOver = true;
                             const winner = room.players[0].sets > room.players[1].sets ? room.players[0] : room.players[1];
                             const loser = room.players.find(p => p.id !== winner.id);
 
-                            // レート変動の適用
-                            updateRating(winner.dbId, true, (newR) => winner.rating = newR);
-                            updateRating(loser.dbId, false, (newR) => loser.rating = newR);
-
-                            room.message = `🏆 試合終了！ 勝者: ${winner.username} 🎉`;
-                            io.to(roomId).emit('updateState', room);
+                            // レート変動の適用（非同期完了後にクライアントに反映するためコールバック内で送信）
+                            updateRating(winner.dbId, true, (newR) => {
+                                winner.rating = newR;
+                                updateRating(loser.dbId, false, (newR2) => {
+                                    loser.rating = newR2;
+                                    room.message = `🏆 試合終了！ 勝者: ${winner.username} 🎉`;
+                                    io.to(roomId).emit('updateState', room);
+                                });
+                            });
                             return;
                         } else {
                             room.currentSet++;
-                            room.message = `【セット ${room.currentSet} 開始】勝者: ${player.username}！`;
+                            room.message = `【セット ${room.currentSet} 開始】前セット勝者: ${player.username}！`;
                         }
                     } else {
                         room.message = `ラウンド勝利: ${player.username}！次の問題へ...`;
@@ -183,7 +187,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 切断時の処理（不戦勝でもしっかりレート変動を反映）
     socket.on('disconnect', () => {
         if (waitingPlayer === socket) waitingPlayer = null;
 
@@ -195,11 +198,15 @@ io.on('connection', (socket) => {
                 const winner = room.players[1 - playerIndex];
                 const loser = room.players[playerIndex];
 
-                updateRating(winner.dbId, true, (newR) => winner.rating = newR);
-                updateRating(loser.dbId, false, (newR) => loser.rating = newR);
+                updateRating(winner.dbId, true, (newR) => {
+                    winner.rating = newR;
+                    updateRating(loser.dbId, false, (newR2) => {
+                        loser.rating = newR2;
+                        room.message = `⚠️ 対戦相手が切断しました。『${winner.username}』の不戦勝です！`;
+                        io.to(roomId).emit('updateState', room);
+                    });
+                });
 
-                room.message = `⚠️ 対戦相手が切断しました。『${winner.username}』の不戦勝です！`;
-                io.to(roomId).emit('updateState', room);
                 setTimeout(() => {
                     delete rooms[roomId];
                 }, 5000);
@@ -216,7 +223,7 @@ function initGame(room) {
         [room.deck[i], room.deck[j]] = [room.deck[j], room.deck[i]];
     }
     room.fieldCards = [];
-    while (room.fieldCards.length < 5 && room.deck.length > 0) {
+    while (room.fieldCard ? room.fieldCards.length < 5 : room.fieldCards.length < 5 && room.deck.length > 0) {
         room.fieldCards.push(room.deck.pop());
     }
 }
