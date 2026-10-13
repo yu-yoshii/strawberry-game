@@ -19,7 +19,7 @@
 </head>
 <body>
 
-    <!-- 1. ログイン・新規登録画面（ホームページ） -->
+    <!-- 1. ログイン・新規登録画面 -->
     <div id="screen-auth" class="screen active">
         <h1>🍓 いちご王国オンライン 🍓</h1>
         <div style="background: white; display: inline-block; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
@@ -32,7 +32,7 @@
         </div>
     </div>
 
-    <!-- 2. ロビー画面（マッチング開始ボタン） -->
+    <!-- 2. ロビー画面 -->
     <div id="screen-lobby" class="screen">
         <h1>🍓 ロビー 🍓</h1>
         <div style="background: white; display: inline-block; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
@@ -57,15 +57,15 @@
         <div id="field-cards"></div>
 
         <div>
-            <input type="text" id="expression" readonly style="width: 300px; text-align: center; font-size: 20px;"><br>
+            <input type="text" id="expression" readonly style="width: 320px; text-align: center; font-size: 20px;"><br>
             <!-- 計算用ボタンパッド -->
             <div>
-                <button class="calc-btn" onclick="addTxt('+')">+</button>
-                <button class="calc-btn" onclick="addTxt('-')">-</button>
-                <button class="calc-btn" onclick="addTxt('*')">×</button>
-                <button class="calc-btn" onclick="addTxt('/')">÷</button>
-                <button class="calc-btn" onclick="addTxt('(')">(</button>
-                <button class="calc-btn" onclick="addTxt(')')">)</button>
+                <button class="calc-btn" onclick="appendExpr('+')">+</button>
+                <button class="calc-btn" onclick="appendExpr('-')">-</button>
+                <button class="calc-btn" onclick="appendExpr('*')">×</button>
+                <button class="calc-btn" onclick="appendExpr('/')">÷</button>
+                <button class="calc-btn" onclick="appendExpr('(')">(</button>
+                <button class="calc-btn" onclick="appendExpr(')')">)</button>
                 <button class="calc-btn" onclick="clearExpr()" style="background:#777;">クリア</button>
             </div>
             <br>
@@ -82,7 +82,7 @@
         const socket = io();
         let currentUser = null;
         let currentGameRoom = null;
-        let selectedCards = [];
+        let selectedCards = []; // 実際に選択されたカードのオブジェクト（インデックス管理用）
 
         function showScreen(screenId) {
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -124,18 +124,21 @@
         socket.on('updateState', (state) => {
             showScreen('screen-game');
             currentGameRoom = state.roomId;
+            selectedCards = []; // セット更新やターンごとに選択をリセット
+            updateExpressionDisplay();
 
             document.getElementById('message').innerText = state.message;
             document.getElementById('room-info').innerText = `セット ${state.currentSet} / 3`;
 
-            // 場札
+            // 場札の描画
             const fieldDiv = document.getElementById('field-cards');
             fieldDiv.innerHTML = '';
-            state.fieldCards.forEach(num => {
+            state.fieldCards.forEach((num, index) => {
                 const card = document.createElement('div');
-                card.className = 'card' + (selectedCards.includes(num) ? ' selected' : '');
+                const isSelected = selectedCards.some(c => c.uniqueId === index);
+                card.className = 'card' + (isSelected ? ' selected' : '');
                 card.innerText = num;
-                card.onclick = () => toggleCard(num, card);
+                card.onclick = () => toggleCard(num, index);
                 fieldDiv.appendChild(card);
             });
 
@@ -151,28 +154,59 @@
             document.getElementById('status').innerHTML = statusHtml;
         });
 
-        function toggleCard(num) {
-            const idx = selectedCards.indexOf(num);
-            if (idx > -1) {
-                selectedCards.splice(idx, 1);
+        // カードをクリックした時の処理（重複選択や個別管理に対応）
+        function toggleCard(num, index) {
+            const existingIndex = selectedCards.findIndex(c => c.uniqueId === index);
+            if (existingIndex > -1) {
+                selectedCards.splice(existingIndex, 1);
             } else {
-                selectedCards.push(num);
+                selectedCards.push({ value: num, uniqueId: index });
             }
-            document.getElementById('expression').value = selectedCards.join(' + ');
+            updateFieldCardStyles();
+            updateExpressionDisplay();
         }
 
-        function addTxt(val) {
-            document.getElementById('expression').value += val;
+        // 演算子や括弧を追加する関数（文字が消えないように末尾に追加）
+        function appendExpr(val) {
+            const input = document.getElementById('expression');
+            input.value += val;
+        }
+
+        // 選択されたカードや入力内容からテキストボックスを更新
+        function updateExpressionDisplay() {
+            // ここでは簡易的に選択されたカードの数値を順番に並べる、または自由入力を保持する
+            // ユーザーがボタンで自由に入力できるようにするため、入力欄のクリア以外はappendExprで積み上げ式にします
+        }
+
+        function updateFieldCardStyles() {
+            const cards = document.querySelectorAll('#field-cards .card');
+            cards.forEach((card, index) => {
+                const isSelected = selectedCards.some(c => c.uniqueId === index);
+                if (isSelected) {
+                    card.classList.add('selected');
+                } else {
+                    card.classList.remove('selected');
+                }
+            });
+            // 選択されたカードの数値をスペース区切りやそのまま入力欄に反映するか、
+            // あるいはユーザーが自由に入力・編集できるようにします。
+            // 今回は分かりやすく「選択したカードのリスト」を入力欄のベースにします：
+            const exprInput = document.getElementById('expression');
+            const cardValues = selectedCards.map(c => c.value).join(' ');
+            exprInput.value = cardValues;
         }
 
         function clearExpr() {
             document.getElementById('expression').value = '';
             selectedCards = [];
+            updateFieldCardStyles();
         }
 
         function sendCalc() {
             const expression = document.getElementById('expression').value;
-            socket.emit('tryCalc', { roomId: currentGameRoom, expression, selectedCards });
+            // サーバーに送るカードの数値リスト
+            const cardValues = selectedCards.map(c => c.value);
+            socket.emit('tryCalc', { roomId: currentGameRoom, expression, selectedCards: cardValues });
             clearExpr();
         }
 
