@@ -16,11 +16,9 @@
         .screen.active { display: block; }
         #message { font-size: 20px; color: #d81b60; font-weight: bold; margin: 15px; padding: 10px; background: #ffe4e1; border-radius: 8px; display: inline-block; }
         .version-tag { position: fixed; bottom: 10px; right: 15px; font-size: 14px; color: #888; background: rgba(255,255,255,0.8); padding: 4px 8px; border-radius: 4px; }
-
-        /* タイマー表示用スタイル */
         #timer-box { font-size: 18px; color: #c71585; font-weight: bold; margin-top: 5px; }
+        #pass-status { font-size: 16px; color: #ff8c00; font-weight: bold; margin: 5px; }
 
-        /* 派手な勝利エフェクト */
         @keyframes celebration {
             0% { transform: scale(0.5) rotate(-5deg); opacity: 0; }
             50% { transform: scale(1.1) rotate(3deg); opacity: 1; }
@@ -48,7 +46,6 @@
 </head>
 <body>
 
-    <!-- 勝利時のお祝いポップアップエフェクト -->
     <div id="victory-banner" class="victory-banner">🍓 👑 VICTORY! 👑 🍓<br><span id="victory-text" style="font-size: 22px;">おめでとう！王国を制覇した！</span></div>
 
     <!-- 1. ログイン・新規登録画面 -->
@@ -71,6 +68,8 @@
             <h3 id="welcome-msg"></h3>
             <p>ルール：場の5枚のカードを<strong>すべて使って</strong>「15」を早く作れ！（3セットマッチ・勝利でレートUP↑）</p>
             <button class="main-btn" onclick="startMatching()" style="font-size: 18px; padding: 12px 25px;">マッチング開始</button>
+            <br><br>
+            <button onclick="logout()" style="background: none; border: none; color: #888; cursor: pointer; text-decoration: underline;">ログアウト</button>
         </div>
     </div>
 
@@ -86,6 +85,7 @@
         <h2 id="room-info">セット 1 / 3</h2>
         <div id="message">読み込み中...</div>
         <div id="timer-box"></div>
+        <div id="pass-status"></div>
         
         <h3>場のカード（クリックすると式に入力されます）</h3>
         <div id="field-cards"></div>
@@ -104,6 +104,7 @@
             </div>
             <br>
             <button id="submit-btn" class="main-btn" onclick="sendCalc()" style="font-size: 18px; padding: 12px 40px; background: #28a745;">「15」で早押し解答！</button>
+            <button id="pass-btn" class="main-btn" onclick="togglePass()" style="font-size: 16px; padding: 12px 20px; background: #ff8c00;">パスを希望する</button>
             <br><br>
             <button id="back-lobby-btn" class="main-btn" onclick="returnToLobby()" style="background: #666; display: none;">ロビーに戻る</button>
         </div>
@@ -112,7 +113,7 @@
         <div id="status" style="font-size: 18px;"></div>
     </div>
 
-    <div id="version-display" class="version-tag">v1.3.1</div>
+    <div id="version-display" class="version-tag">v1.4.0</div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
@@ -120,14 +121,21 @@
         let currentUser = null;
         let currentGameRoom = null;
         let reviewTimer = null;
+        let isPassRequested = false;
 
-        // ページ読み込み時にローカルストレージからログイン情報を復元（バージョンアップ対策）
+        // 起動時に自動でサーバーへ保存済みユーザーIDを通知して復元を試みる
         window.addEventListener('DOMContentLoaded', () => {
-            const savedUser = localStorage.getItem('strawberry_user');
-            if (savedUser) {
-                currentUser = JSON.parse(savedUser);
-                updateWelcomeMsg();
-                showScreen('screen-lobby');
+            const savedUserId = localStorage.getItem('strawberry_user_id');
+            if (savedUserId) {
+                socket.emit('restoreSession', parseInt(savedUserId), (res) => {
+                    if (res.success) {
+                        currentUser = res.user;
+                        updateWelcomeMsg();
+                        showScreen('screen-lobby');
+                    } else {
+                        localStorage.removeItem('strawberry_user_id');
+                    }
+                });
             }
         });
 
@@ -147,7 +155,7 @@
             const data = await res.json();
             if (data.success) {
                 currentUser = data.user;
-                localStorage.setItem('strawberry_user', JSON.stringify(currentUser)); // 保持
+                localStorage.setItem('strawberry_user_id', currentUser.id);
                 updateWelcomeMsg();
                 showScreen('screen-lobby');
             } else {
@@ -155,15 +163,21 @@
             }
         }
 
+        function logout() {
+            localStorage.removeItem('strawberry_user_id');
+            currentUser = null;
+            showScreen('screen-auth');
+        }
+
         function updateWelcomeMsg() {
             if (!currentUser) return;
             document.getElementById('welcome-msg').innerHTML = `ようこそ、${currentUser.username} さん！<br><span style="color:#d81b60; font-weight:bold;">現在のレート: ${currentUser.rating}</span>`;
-            localStorage.setItem('strawberry_user', JSON.stringify(currentUser));
         }
 
         function startMatching() {
+            isPassRequested = false;
             showScreen('screen-waiting');
-            socket.emit('startMatchmaking', currentUser);
+            socket.emit('startMatchmaking', currentUser.id);
         }
 
         function cancelMatching() {
@@ -174,6 +188,19 @@
         function returnToLobby() {
             document.getElementById('victory-banner').style.display = 'none';
             showScreen('screen-lobby');
+        }
+
+        function togglePass() {
+            isPassRequested = !isPassRequested;
+            const btn = document.getElementById('pass-btn');
+            if (isPassRequested) {
+                btn.innerText = 'パスを解除する';
+                btn.style.background = '#6c757d';
+            } else {
+                btn.innerText = 'パスを希望する';
+                btn.style.background = '#ff8c00';
+            }
+            socket.emit('requestPass', { roomId: currentGameRoom, pass: isPassRequested });
         }
 
         socket.on('waiting', (msg) => {
@@ -192,18 +219,36 @@
             document.getElementById('message').innerText = state.message;
             document.getElementById('room-info').innerText = `セット ${state.currentSet} / 3`;
 
-            // 自分自身の最新レート情報をstateから同期
+            // 自分自身の最新レート同期
             const meInState = state.players.find(p => p.dbId === currentUser.id);
             if (meInState) {
                 currentUser.rating = meInState.rating;
                 updateWelcomeMsg();
             }
 
+            // 新しい問題に変わったらパス状態をリセット
+            if (!state.isReviewing && !state.isGameOver) {
+                isPassRequested = false;
+                const passBtn = document.getElementById('pass-btn');
+                passBtn.innerText = 'パスを希望する';
+                passBtn.style.background = '#ff8c00';
+            }
+
+            // パス状況の表示
+            let passMsgHtml = '';
+            state.players.forEach(p => {
+                if (p.passRequested) {
+                    passMsgHtml += `⚠️ ${p.username} がパスを希望しています<br>`;
+                }
+            });
+            document.getElementById('pass-status').innerHTML = passMsgHtml;
+
             const isLocked = state.isReviewing || state.isGameOver;
             document.getElementById('expression').disabled = isLocked;
             document.getElementById('submit-btn').disabled = isLocked;
+            document.getElementById('pass-btn').disabled = state.isGameOver;
 
-            // 10秒タイマーの制御
+            // 10秒タイマー
             clearInterval(reviewTimer);
             document.getElementById('timer-box').innerText = '';
             if (state.isReviewing && !state.isGameOver) {
@@ -222,7 +267,6 @@
 
             if (state.isGameOver) {
                 document.getElementById('back-lobby-btn').style.display = 'inline-block';
-                
                 const winner = state.players[0].sets > state.players[1].sets ? state.players[0] : 
                                state.players[1].sets > state.players[0].sets ? state.players[1] : null;
                 
@@ -268,7 +312,6 @@
             const start = input.selectionStart;
             const end = input.selectionEnd;
             const text = input.value;
-            
             input.value = text.substring(0, start) + val + text.substring(end);
             input.focus();
             input.setSelectionRange(start + val.length, start + val.length);
@@ -279,7 +322,6 @@
             const start = input.selectionStart;
             const end = input.selectionEnd;
             const text = input.value;
-
             if (start !== end) {
                 input.value = text.substring(0, start) + text.substring(end);
                 input.setSelectionRange(start, start);

@@ -11,9 +11,8 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-const VERSION = "v1.3.1";
+const VERSION = "v1.4.0";
 
-// データベースのセットアップ（データ永続化）
 const dbPath = path.resolve(__dirname, 'users.db');
 const db = new sqlite3.Database(dbPath, (err) => {
     if (err) console.error('DB接続エラー:', err.message);
@@ -44,12 +43,11 @@ app.post('/api/login', (req, res) => {
     });
 });
 
-// レートを更新してデータベースに保存する関数
 function updateRating(userId, isWinner, callback) {
     db.get(`SELECT rating FROM users WHERE id = ?`, [userId], (err, row) => {
         if (err || !row) return;
         let currentRating = row.rating;
-        const change = isWinner ? 24 : -12; // 勝ち＋24、負け－12
+        const change = isWinner ? 24 : -12;
         let newRating = Math.max(100, currentRating + change);
 
         db.run(`UPDATE users SET rating = ? WHERE id = ?`, [newRating, userId], () => {
@@ -64,44 +62,82 @@ let rooms = {};
 io.on('connection', (socket) => {
     console.log('接続:', socket.id);
 
-    socket.on('startMatchmaking', (user) => {
-        socket.user = user;
+    // クライアントの再接続時にIDからユーザー情報を復元
+    socket.on('restoreSession', (userId, callback) => {
+        db.get(`SELECT id, username, rating FROM users WHERE id = ?`, [userId], (err, row) => {
+            if (err || !row) {
+                callback({ success: false });
+            } else {
+                socket.user = row;
+                callback({ success: true, user: row });
+            }
+        });
+    });
 
-        if (waitingPlayer && waitingPlayer.id !== socket.id) {
-            const roomId = 'room_' + Date.now();
-            const p1 = waitingPlayer;
-            const p2 = socket;
-            waitingPlayer = null;
+    socket.on('startMatchmaking', (userId) => {
+        db.get(`SELECT id, username, rating FROM users WHERE id = ?`, [userId], (err, row) => {
+            if (err || !row) return;
+            socket.user = row;
 
-            p1.join(roomId);
-            p2.join(roomId);
+            if (waitingPlayer && waitingPlayer.id !== socket.id) {
+                const roomId = 'room_' + Date.now();
+                const p1 = waitingPlayer;
+                const p2 = socket;
+                waitingPlayer = null;
 
-            const gameState = {
-                roomId,
-                version: VERSION,
-                players: [
-                    { id: p1.id, dbId: p1.user.id, username: p1.user.username, rating: p1.user.rating, score: 0, sets: 0 },
-                    { id: p2.id, dbId: p2.user.id, username: p2.user.username, rating: p2.user.rating, score: 0, sets: 0 }
-                ],
-                deck: [],
-                fieldCards: [],
-                currentSet: 1,
-                isReviewing: false,
-                isGameOver: false,
-                message: '3セットマッチ開始！ 5枚すべて使って「15」を作れ！'
-            };
+                p1.join(roomId);
+                p2.join(roomId);
 
-            initGame(gameState);
-            rooms[roomId] = gameState;
-            io.to(roomId).emit('updateState', gameState);
-        } else {
-            waitingPlayer = socket;
-            socket.emit('waiting', '対戦相手を待っています...');
-        }
+                const gameState = {
+                    roomId,
+                    version: VERSION,
+                    players: [
+                        { id: p1.id, dbId: p1.user.id, username: p1.user.username, rating: p1.user.rating, score: 0, sets: 0, passRequested: false },
+                        { id: p2.id, dbId: p2.user.id, username: p2.user.username, rating: p2.user.rating, score: 0, sets: 0, passRequested: false }
+                    ],
+                    deck: [],
+                    fieldCards: [],
+                    currentSet: 1,
+                    isReviewing: false,
+                    isGameOver: false,
+                    message: '3セットマッチ開始！ 5枚すべて使って「15」を作れ！'
+                };
+
+                initGame(gameState);
+                rooms[roomId] = gameState;
+                io.to(roomId).emit('updateState', gameState);
+            } else {
+                waitingPlayer = socket;
+                socket.emit('waiting', '対戦相手を待っています...');
+            }
+        });
     });
 
     socket.on('cancelMatchmaking', () => {
         if (waitingPlayer === socket) waitingPlayer = null;
+    });
+
+    // パス機能の処理
+    socket.on('requestPass', ({ roomId, pass }) => {
+        const room = rooms[roomId];
+        if (!room || room.isReviewing || room.isGameOver) return;
+
+        const player = room.players.find(p => p.id === socket.id);
+        if (!player) return;
+
+        player.passRequested = pass;
+
+        // 両者ともにパスが押されているか確認
+        const bothPassed = room.players.every(p => p.passRequested);
+        if (bothPassed) {
+            room.players.forEach(p => p.passRequested = false);
+            room.message = '両者がパスを選択しました。新しいカードに更新します！';
+            initGame(room);
+        } else {
+            room.message = `${player.username} がパスを希望しています`;
+        }
+
+        io.to(roomId).emit('updateState', room);
     });
 
     socket.on('tryCalc', ({ roomId, expression }) => {
@@ -139,24 +175,22 @@ io.on('connection', (socket) => {
             if (Math.abs(result - 15) < 1e-9) {
                 player.score++;
                 room.isReviewing = true;
+                room.players.forEach(p => p.passRequested = false); // ラウンド決着時はパスリセット
                 room.message = `🎉 ${player.username} が正解！ 「${expression} = 15」`;
                 io.to(roomId).emit('updateState', room);
 
                 setTimeout(() => {
                     if (!rooms[roomId]) return;
 
-                    // 3ラウンド先取でセット勝利
                     if (player.score >= 3) {
                         player.sets++;
-                        room.players.forEach(p => p.score = 0); // ラウンドスコアリセット
+                        room.players.forEach(p => p.score = 0);
 
-                        // 2セット先取、または3セット目が終了したか
                         if (room.currentSet >= 3 || room.players.some(p => p.sets >= 2)) {
                             room.isGameOver = true;
                             const winner = room.players[0].sets > room.players[1].sets ? room.players[0] : room.players[1];
                             const loser = room.players.find(p => p.id !== winner.id);
 
-                            // レート変動の適用（非同期完了後にクライアントに反映するためコールバック内で送信）
                             updateRating(winner.dbId, true, (newR) => {
                                 winner.rating = newR;
                                 updateRating(loser.dbId, false, (newR2) => {
@@ -223,7 +257,7 @@ function initGame(room) {
         [room.deck[i], room.deck[j]] = [room.deck[j], room.deck[i]];
     }
     room.fieldCards = [];
-    while (room.fieldCard ? room.fieldCards.length < 5 : room.fieldCards.length < 5 && room.deck.length > 0) {
+    while (room.fieldCards.length < 5 && room.deck.length > 0) {
         room.fieldCards.push(room.deck.pop());
     }
 }
