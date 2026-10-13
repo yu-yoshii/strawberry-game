@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>いちご王国オンライン</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #fff0f5; color: #333; margin-top: 20px; }
+        .card { width: 55px; height: 80px; background: white; border: 2px solid #ff69b4; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold; cursor: pointer; margin: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .card.selected { background: #ffb6c1; transform: translateY(-5px); }
+        .calc-btn { width: 50px; height: 50px; font-size: 20px; margin: 4px; background: #ff69b4; color: white; border: none; border-radius: 8px; cursor: pointer; }
+        .calc-btn:hover { background: #db0073; }
+        input, button.main-btn { padding: 10px; font-size: 16px; border-radius: 5px; margin: 5px; }
+        button.main-btn { background: #ff1493; color: white; border: none; cursor: pointer; }
+        button.main-btn:hover { background: #db0073; }
+        .screen { display: none; }
+        .screen.active { display: block; }
+        #message { font-size: 18px; color: #d81b60; font-weight: bold; margin: 15px; }
+    </style>
+</head>
+<body>
+
+    <!-- 1. ログイン・新規登録画面（ホームページ） -->
+    <div id="screen-auth" class="screen active">
+        <h1>🍓 いちご王国オンライン 🍓</h1>
+        <div style="background: white; display: inline-block; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+            <h3>ログイン または 新規登録</h3>
+            <input type="text" id="username" placeholder="ユーザー名"><br>
+            <input type="password" id="password" placeholder="パスワード"><br><br>
+            <button class="main-btn" onclick="auth('login')">ログイン</button>
+            <button class="main-btn" onclick="auth('register')">新規登録</button>
+            <p id="auth-msg" style="color: red;"></p>
+        </div>
+    </div>
+
+    <!-- 2. ロビー画面（マッチング開始ボタン） -->
+    <div id="screen-lobby" class="screen">
+        <h1>🍓 ロビー 🍓</h1>
+        <div style="background: white; display: inline-block; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+            <h3 id="welcome-msg"></h3>
+            <button class="main-btn" onclick="startMatching()" style="font-size: 18px; padding: 12px 25px;">マッチング開始</button>
+        </div>
+    </div>
+
+    <!-- 3. マッチング待機画面 -->
+    <div id="screen-waiting" class="screen">
+        <h1>マッチメイキング</h1>
+        <p id="waiting-text" style="font-size: 18px; color: #555;">対戦相手を探しています...</p>
+        <button class="main-btn" onclick="cancelMatching()" style="background: #777;">キャンセル</button>
+    </div>
+
+    <!-- 4. ゲーム画面 -->
+    <div id="screen-game" class="screen">
+        <h2 id="room-info">3セットマッチ</h2>
+        <div id="message">読み込み中...</div>
+        
+        <h3>場のカード（クリックして式に追加）</h3>
+        <div id="field-cards"></div>
+
+        <div>
+            <input type="text" id="expression" readonly style="width: 300px; text-align: center; font-size: 20px;"><br>
+            <!-- 計算用ボタンパッド -->
+            <div>
+                <button class="calc-btn" onclick="addTxt('+')">+</button>
+                <button class="calc-btn" onclick="addTxt('-')">-</button>
+                <button class="calc-btn" onclick="addTxt('*')">×</button>
+                <button class="calc-btn" onclick="addTxt('/')">÷</button>
+                <button class="calc-btn" onclick="addTxt('(')">(</button>
+                <button class="calc-btn" onclick="addTxt(')')">)</button>
+                <button class="calc-btn" onclick="clearExpr()" style="background:#777;">クリア</button>
+            </div>
+            <br>
+            <button class="main-btn" onclick="sendCalc()" style="font-size: 18px; padding: 12px 30px;">「15」を作る！</button>
+            <button class="main-btn" onclick="passTurn()" style="background: #777; font-size: 18px; padding: 12px 30px;">パス</button>
+        </div>
+
+        <h3>対戦状況</h3>
+        <div id="status" style="font-size: 18px;"></div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        let currentUser = null;
+        let currentGameRoom = null;
+        let selectedCards = [];
+
+        function showScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(screenId).classList.add('active');
+        }
+
+        async function auth(type) {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const res = await fetch(`/api/${type}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const data = await res.json();
+            if (data.success) {
+                currentUser = data.user;
+                document.getElementById('welcome-msg').innerText = `ようこそ、${currentUser.username} さん！ (レート: ${currentUser.rating})`;
+                showScreen('screen-lobby');
+            } else {
+                document.getElementById('auth-msg').innerText = data.message;
+            }
+        }
+
+        function startMatching() {
+            showScreen('screen-waiting');
+            socket.emit('startMatchmaking', currentUser);
+        }
+
+        function cancelMatching() {
+            socket.emit('cancelMatchmaking');
+            showScreen('screen-lobby');
+        }
+
+        socket.on('waiting', (msg) => {
+            document.getElementById('waiting-text').innerText = msg;
+        });
+
+        socket.on('updateState', (state) => {
+            showScreen('screen-game');
+            currentGameRoom = state.roomId;
+
+            document.getElementById('message').innerText = state.message;
+            document.getElementById('room-info').innerText = `セット ${state.currentSet} / 3`;
+
+            // 場札
+            const fieldDiv = document.getElementById('field-cards');
+            fieldDiv.innerHTML = '';
+            state.fieldCards.forEach(num => {
+                const card = document.createElement('div');
+                card.className = 'card' + (selectedCards.includes(num) ? ' selected' : '');
+                card.innerText = num;
+                card.onclick = () => toggleCard(num, card);
+                fieldDiv.appendChild(card);
+            });
+
+            // ステータス
+            let statusHtml = '';
+            state.players.forEach(p => {
+                const isMe = p.id === socket.id;
+                statusHtml += `${isMe ? '<b>[あなた]</b> ' : ''}${p.username} (レート: ${p.rating})<br>`;
+                statusHtml += `獲得枚数: ${p.score}枚 | 取得セット数: ${p.sets}勝<br><br>`;
+            });
+            const myTurn = state.players[state.turnIndex].id === socket.id;
+            statusHtml += `<b>現在のターン: ${myTurn ? 'あなたの番です！' : '相手の番です...'}</b>`;
+            document.getElementById('status').innerHTML = statusHtml;
+        });
+
+        function toggleCard(num) {
+            const idx = selectedCards.indexOf(num);
+            if (idx > -1) {
+                selectedCards.splice(idx, 1);
+            } else {
+                selectedCards.push(num);
+            }
+            document.getElementById('expression').value = selectedCards.join(' + ');
+        }
+
+        function addTxt(val) {
+            document.getElementById('expression').value += val;
+        }
+
+        function clearExpr() {
+            document.getElementById('expression').value = '';
+            selectedCards = [];
+        }
+
+        function sendCalc() {
+            const expression = document.getElementById('expression').value;
+            socket.emit('tryCalc', { roomId: currentGameRoom, expression, selectedCards });
+            clearExpr();
+        }
+
+        function passTurn() {
+            socket.emit('passTurn', currentGameRoom);
+            clearExpr();
+        }
+    </script>
+</body>
+</html>
