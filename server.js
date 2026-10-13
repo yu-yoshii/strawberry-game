@@ -11,7 +11,7 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-const VERSION = "v1.4.2";
+const VERSION = "v1.4.3";
 
 const dbPath = path.resolve(__dirname, 'users.db');
 const db = new sqlite3.Database(dbPath, (err) => {
@@ -89,7 +89,7 @@ io.on('connection', (socket) => {
                     roomId,
                     version: VERSION,
                     players: [
-                        { id: p1.id, dbId: p1.user ? p1.user.id : p1.dbId, username: p1.user ? p1.user.username : p1.username, rating: p1.user ? p1.user.rating : p1.rating, score: 0, sets: 0, passRequested: false },
+                        { id: p1.id, dbId: p1.dbId, username: 'Player1', rating: 1000, score: 0, sets: 0, passRequested: false },
                         { id: p2.id, dbId: row.id, username: row.username, rating: row.rating, score: 0, sets: 0, passRequested: false }
                     ],
                     deck: [],
@@ -100,8 +100,7 @@ io.on('connection', (socket) => {
                     message: '3本勝負（2セット先取）開始！ 5枚すべて使って「15」を作れ！'
                 };
 
-                // p1側のユーザー情報も安全に保持
-                db.get(`SELECT id, username, rating FROM users WHERE id = ?`, [p1.user ? p1.user.id : null], (err, p1Row) => {
+                db.get(`SELECT id, username, rating FROM users WHERE id = ?`, [p1.dbId], (err, p1Row) => {
                     if (p1Row) {
                         gameState.players[0].dbId = p1Row.id;
                         gameState.players[0].username = p1Row.username;
@@ -113,7 +112,6 @@ io.on('connection', (socket) => {
                 });
 
             } else {
-                socket.user = row;
                 socket.dbId = row.id;
                 waitingPlayer = socket;
                 socket.emit('waiting', '対戦相手を待っています...');
@@ -188,12 +186,12 @@ io.on('connection', (socket) => {
                 setTimeout(() => {
                     if (!rooms[roomId]) return;
 
-                    // 1ラウンド（ポイント）制をクリアした場合（3点先取で1セット獲得）
+                    // 3ラウンド先取でセット獲得
                     if (player.score >= 3) {
-                        player.sets++; // セット獲得
-                        room.players.forEach(p => p.score = 0); // ラウンドポイントリセット
+                        player.sets++; // セット数加算
+                        room.players.forEach(p => p.score = 0); // ラウンドスコアリセット
 
-                        // 【2セット先取】または全3セット終了した場合
+                        // 【2セット先取】または3セット目到達で試合終了
                         if (player.sets >= 2 || room.currentSet >= 3) {
                             room.isGameOver = true;
                             const winner = room.players[0].sets > room.players[1].sets ? room.players[0] : room.players[1];
@@ -209,7 +207,7 @@ io.on('connection', (socket) => {
                             });
                             return;
                         } else {
-                            // 次のセットへ進む
+                            // 【修正】次のセットに進んだときに currentSet を確実にインクリメント
                             room.currentSet++;
                             room.message = `【セット ${room.currentSet} 開始】前セット勝者: ${player.username}！`;
                         }

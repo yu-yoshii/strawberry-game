@@ -113,7 +113,7 @@
         <div id="status" style="font-size: 18px;"></div>
     </div>
 
-    <div id="version-display" class="version-tag">v1.4.2</div>
+    <div id="version-display" class="version-tag">v1.4.3</div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
@@ -123,7 +123,7 @@
         let reviewTimer = null;
         let isPassRequested = false;
 
-        // ページ読み込み時にセッション自動復元
+        // ページ読み込み時のセッション自動復元（サーバー再起動・リロード対策）
         window.addEventListener('DOMContentLoaded', () => {
             const savedUserId = localStorage.getItem('strawberry_user_id');
             if (savedUserId) {
@@ -134,6 +134,19 @@
                         showScreen('screen-lobby');
                     } else {
                         localStorage.removeItem('strawberry_user_id');
+                    }
+                });
+            }
+        });
+
+        // サーバーが再接続したときにもセッションを自動で復元させる
+        socket.on('connect', () => {
+            const savedUserId = localStorage.getItem('strawberry_user_id');
+            if (savedUserId && !currentUser) {
+                socket.emit('restoreSession', parseInt(savedUserId), (res) => {
+                    if (res && res.success) {
+                        currentUser = res.user;
+                        updateWelcomeMsg();
                     }
                 });
             }
@@ -218,10 +231,12 @@
             document.getElementById('version-display').innerText = state.version;
 
             document.getElementById('message').innerText = state.message;
+            
+            // 【修正】セット数がリアルタイムに正しく表示されるように反映
             document.getElementById('room-info').innerText = `セット ${state.currentSet} / 3`;
 
-            // 自分自身の最新レート同期
-            const meInState = state.players.find(p => p.dbId === currentUser.id);
+            // 自分自身の最新レート同期と保持
+            const meInState = state.players.find(p => p.dbId === currentUser?.id);
             if (meInState) {
                 currentUser.rating = meInState.rating;
                 updateWelcomeMsg();
@@ -252,11 +267,11 @@
             document.getElementById('timer-box').innerText = '';
             if (state.isReviewing && !state.isGameOver) {
                 let timeLeft = 10;
-                document.getElementById('timer-box').innerText = `次のセットまで: ${timeLeft}秒`;
+                document.getElementById('timer-box').innerText = `次のラウンドまで: ${timeLeft}秒`;
                 reviewTimer = setInterval(() => {
                     timeLeft--;
                     if (timeLeft > 0) {
-                        document.getElementById('timer-box').innerText = `次のセットまで: ${timeLeft}秒`;
+                        document.getElementById('timer-box').innerText = `次のラウンドまで: ${timeLeft}秒`;
                     } else {
                         clearInterval(reviewTimer);
                         document.getElementById('timer-box').innerText = '';
@@ -269,11 +284,11 @@
                 const winner = state.players[0].sets > state.players[1].sets ? state.players[0] : 
                                state.players[1].sets > state.players[0].sets ? state.players[1] : null;
                 
-                if (winner && winner.dbId === currentUser.id) {
+                if (winner && winner.dbId === currentUser?.id) {
                     document.getElementById('victory-text').innerHTML = `おめでとう！王国を制覇した！<br><b>レート +24 UP！ (現在: ${winner.rating})</b>`;
                     document.getElementById('victory-banner').style.display = 'block';
                 } else if (winner) {
-                    document.getElementById('victory-text').innerHTML = `敗北… 精進せよ！<br><b>レート -12 ダウン (現在: ${meInState.rating})</b>`;
+                    document.getElementById('victory-text').innerHTML = `敗北… 精進せよ！<br><b>レート -12 ダウン (現在: ${meInState ? meInState.rating : ''})</b>`;
                     document.getElementById('victory-banner').style.display = 'block';
                 }
             } else {
@@ -299,7 +314,7 @@
 
             let statusHtml = '';
             state.players.forEach(p => {
-                const isMe = p.dbId === currentUser.id;
+                const isMe = p.dbId === currentUser?.id;
                 statusHtml += `${isMe ? '<b>[あなた]</b> ' : ''}${p.username} (レート: ${p.rating})<br>`;
                 statusHtml += `獲得セット数: 🏆 ${p.sets}勝 | ラウンドポイント: ${p.score} / 3<br><br>`;
             });
