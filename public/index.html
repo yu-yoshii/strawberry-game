@@ -66,7 +66,7 @@
         <h1>🍓 ロビー 🍓</h1>
         <div style="background: white; display: inline-block; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
             <h3 id="welcome-msg"></h3>
-            <p>ルール：場の5枚のカードを<strong>すべて使って</strong>「15」を早く作れ！（3セットマッチ・勝利でレートUP↑）</p>
+            <p>ルール：場の5枚のカードを<strong>すべて使って</strong>「15」を早く作れ！（3本勝負・2セット先取で勝利）</p>
             <button class="main-btn" onclick="startMatching()" style="font-size: 18px; padding: 12px 25px;">マッチング開始</button>
             <br><br>
             <button onclick="logout()" style="background: none; border: none; color: #888; cursor: pointer; text-decoration: underline;">ログアウト</button>
@@ -113,7 +113,7 @@
         <div id="status" style="font-size: 18px;"></div>
     </div>
 
-    <div id="version-display" class="version-tag">v1.4.0</div>
+    <div id="version-display" class="version-tag">v1.4.2</div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
@@ -123,12 +123,12 @@
         let reviewTimer = null;
         let isPassRequested = false;
 
-        // 起動時に自動でサーバーへ保存済みユーザーIDを通知して復元を試みる
+        // ページ読み込み時にセッション自動復元
         window.addEventListener('DOMContentLoaded', () => {
             const savedUserId = localStorage.getItem('strawberry_user_id');
             if (savedUserId) {
                 socket.emit('restoreSession', parseInt(savedUserId), (res) => {
-                    if (res.success) {
+                    if (res && res.success) {
                         currentUser = res.user;
                         updateWelcomeMsg();
                         showScreen('screen-lobby');
@@ -175,6 +175,7 @@
         }
 
         function startMatching() {
+            if (!currentUser) return;
             isPassRequested = false;
             showScreen('screen-waiting');
             socket.emit('startMatchmaking', currentUser.id);
@@ -224,9 +225,9 @@
             if (meInState) {
                 currentUser.rating = meInState.rating;
                 updateWelcomeMsg();
+                localStorage.setItem('strawberry_user_id', currentUser.id);
             }
 
-            // 新しい問題に変わったらパス状態をリセット
             if (!state.isReviewing && !state.isGameOver) {
                 isPassRequested = false;
                 const passBtn = document.getElementById('pass-btn');
@@ -234,7 +235,6 @@
                 passBtn.style.background = '#ff8c00';
             }
 
-            // パス状況の表示
             let passMsgHtml = '';
             state.players.forEach(p => {
                 if (p.passRequested) {
@@ -248,16 +248,15 @@
             document.getElementById('submit-btn').disabled = isLocked;
             document.getElementById('pass-btn').disabled = state.isGameOver;
 
-            // 10秒タイマー
             clearInterval(reviewTimer);
             document.getElementById('timer-box').innerText = '';
             if (state.isReviewing && !state.isGameOver) {
                 let timeLeft = 10;
-                document.getElementById('timer-box').innerText = `次の問題まで: ${timeLeft}秒`;
+                document.getElementById('timer-box').innerText = `次のセットまで: ${timeLeft}秒`;
                 reviewTimer = setInterval(() => {
                     timeLeft--;
                     if (timeLeft > 0) {
-                        document.getElementById('timer-box').innerText = `次の問題まで: ${timeLeft}秒`;
+                        document.getElementById('timer-box').innerText = `次のセットまで: ${timeLeft}秒`;
                     } else {
                         clearInterval(reviewTimer);
                         document.getElementById('timer-box').innerText = '';

@@ -11,7 +11,7 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-const VERSION = "v1.4.1";
+const VERSION = "v1.4.2";
 
 const dbPath = path.resolve(__dirname, 'users.db');
 const db = new sqlite3.Database(dbPath, (err) => {
@@ -67,7 +67,6 @@ io.on('connection', (socket) => {
             if (err || !row) {
                 callback({ success: false });
             } else {
-                socket.user = row;
                 callback({ success: true, user: row });
             }
         });
@@ -76,7 +75,6 @@ io.on('connection', (socket) => {
     socket.on('startMatchmaking', (userId) => {
         db.get(`SELECT id, username, rating FROM users WHERE id = ?`, [userId], (err, row) => {
             if (err || !row) return;
-            socket.user = row;
 
             if (waitingPlayer && waitingPlayer.id !== socket.id) {
                 const roomId = 'room_' + Date.now();
@@ -87,25 +85,36 @@ io.on('connection', (socket) => {
                 p1.join(roomId);
                 p2.join(roomId);
 
-                    const gameState = {
+                const gameState = {
                     roomId,
                     version: VERSION,
                     players: [
-                        { id: p1.id, dbId: p1.user.id, username: p1.user.username, rating: p1.user.rating, score: 0, sets: 0, passRequested: false },
-                        { id: p2.id, dbId: p2.user.id, username: p2.user.username, rating: p2.user.rating, score: 0, sets: 0, passRequested: false }
+                        { id: p1.id, dbId: p1.user ? p1.user.id : p1.dbId, username: p1.user ? p1.user.username : p1.username, rating: p1.user ? p1.user.rating : p1.rating, score: 0, sets: 0, passRequested: false },
+                        { id: p2.id, dbId: row.id, username: row.username, rating: row.rating, score: 0, sets: 0, passRequested: false }
                     ],
                     deck: [],
                     fieldCards: [],
                     currentSet: 1,
                     isReviewing: false,
                     isGameOver: false,
-                    message: '3セットマッチ開始！ 5枚すべて使って「15」を作れ！'
+                    message: '3本勝負（2セット先取）開始！ 5枚すべて使って「15」を作れ！'
                 };
 
-                initGame(gameState);
-                rooms[roomId] = gameState;
-                io.to(roomId).emit('updateState', gameState);
+                // p1側のユーザー情報も安全に保持
+                db.get(`SELECT id, username, rating FROM users WHERE id = ?`, [p1.user ? p1.user.id : null], (err, p1Row) => {
+                    if (p1Row) {
+                        gameState.players[0].dbId = p1Row.id;
+                        gameState.players[0].username = p1Row.username;
+                        gameState.players[0].rating = p1Row.rating;
+                    }
+                    initGame(gameState);
+                    rooms[roomId] = gameState;
+                    io.to(roomId).emit('updateState', gameState);
+                });
+
             } else {
+                socket.user = row;
+                socket.dbId = row.id;
                 waitingPlayer = socket;
                 socket.emit('waiting', '対戦相手を待っています...');
             }
@@ -179,15 +188,14 @@ io.on('connection', (socket) => {
                 setTimeout(() => {
                     if (!rooms[roomId]) return;
 
-                    // ラウンド（またはセット内ポイント）が3点に達したとき
+                    // 1ラウンド（ポイント）制をクリアした場合（3点先取で1セット獲得）
                     if (player.score >= 3) {
                         player.sets++; // セット獲得
-                        room.players.forEach(p => p.score = 0); // ラウンドスコアリセット
+                        room.players.forEach(p => p.score = 0); // ラウンドポイントリセット
 
-                        // どちらかが 2セット先取 した場合、または 3セット目が終わった場合
+                        // 【2セット先取】または全3セット終了した場合
                         if (player.sets >= 2 || room.currentSet >= 3) {
                             room.isGameOver = true;
-                            // 勝者の決定（setsが多い方）
                             const winner = room.players[0].sets > room.players[1].sets ? room.players[0] : room.players[1];
                             const loser = room.players.find(p => p.id !== winner.id);
 
@@ -201,7 +209,7 @@ io.on('connection', (socket) => {
                             });
                             return;
                         } else {
-                            // 次のセットへ移行
+                            // 次のセットへ進む
                             room.currentSet++;
                             room.message = `【セット ${room.currentSet} 開始】前セット勝者: ${player.username}！`;
                         }
