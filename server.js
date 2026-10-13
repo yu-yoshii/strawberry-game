@@ -11,13 +11,13 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-const VERSION = "v1.1.0";
+const VERSION = "v1.2.0";
 
-// データベースのセットアップ（永続化のためプロジェクトディレクトリ直下に確実保存）
+// データベースのセットアップ（データ永続化）
 const dbPath = path.resolve(__dirname, 'users.db');
 const db = new sqlite3.Database(dbPath, (err) => {
     if (err) console.error('DB接続エラー:', err.message);
-    else console.log('データベースに接続しました:', dbPath);
+    else console.log('データベース接続完了:', dbPath);
 });
 
 db.run(`CREATE TABLE IF NOT EXISTS users (
@@ -45,7 +45,7 @@ app.post('/api/login', (req, res) => {
 });
 
 let waitingPlayer = null;
-let rooms = {};
+let rooms = {}; // roomId -> gameState
 
 io.on('connection', (socket) => {
     console.log('接続:', socket.id);
@@ -73,6 +73,7 @@ io.on('connection', (socket) => {
                 fieldCards: [],
                 currentSet: 1,
                 isReviewing: false,
+                isGameOver: false,
                 message: '3セットマッチ開始！ 5枚すべて使って「15」を作れ！'
             };
 
@@ -92,7 +93,7 @@ io.on('connection', (socket) => {
     // 早押し解答の判定
     socket.on('tryCalc', ({ roomId, expression }) => {
         const room = rooms[roomId];
-        if (!room || room.isReviewing) return;
+        if (!room || room.isReviewing || room.isGameOver) return;
 
         const player = room.players.find(p => p.id === socket.id);
         if (!player) return;
@@ -103,13 +104,9 @@ io.on('connection', (socket) => {
                 throw new Error('無効な文字');
             }
 
-            // 1. 式に含まれる数字を抽出
             const usedNumbers = sanitized.match(/\d+/g)?.map(Number) || [];
-            
-            // 2. 場にある5枚のカードのコピー
             const currentField = [...room.fieldCards];
 
-            // 3. 5枚すべて使っているか、かつ場のカードと完全に一致するかチェック
             if (usedNumbers.length !== currentField.length) {
                 socket.emit('notify', `カードをちょうど5枚すべて使ってください！（現在 ${usedNumbers.length}枚）`);
                 return;
@@ -124,35 +121,42 @@ io.on('connection', (socket) => {
                 currentField.splice(idx, 1);
             }
 
-            // 4. 計算結果が15か検証
             const result = Function('"use strict";return (' + sanitized + ')')();
 
             if (Math.abs(result - 15) < 1e-9) {
                 // 正解！
                 player.score++;
                 room.isReviewing = true;
-                room.message = `🎉 ${player.username} が正解！ 「${expression} = 15」`;
+                room.message = `🎉 ${player.username} が正解！ 「${expression} = 15」 (+1ポイント)`;
                 io.to(roomId).emit('updateState', room);
 
                 // 10秒間の答え合わせタイム
                 setTimeout(() => {
                     if (!rooms[roomId]) return;
-                    // セット終了条件（セットで3問先取、またはカード切れなど）
+
+                    // セット勝利条件（ポイントが3に達したらセット獲得）
                     if (player.score >= 3) {
                         player.sets++;
-                        room.message = `🏆 セット ${room.currentSet} 勝利者: ${player.username}`;
+                        room.players.forEach(p => p.score = 0); // ポイントリセット
+
+                        // 試合終了条件（2セット先取、または第3セット終了）
                         if (room.currentSet >= 3 || room.players.some(p => p.sets >= 2)) {
-                            room.message += ` — 試合終了！`;
+                            room.isGameOver = true;
+                            const matchWinner = room.players[0].sets > room.players[1].sets ? room.players[0] : 
+                                                room.players[1].sets > room.players[0].sets ? room.players[1] : null;
+                            room.message = `🏆 試合終了！ 勝者: ${matchWinner ? matchWinner.username : '引き分け'} (最終スコア ${room.players[0].sets} - ${room.players[1].sets})`;
                             io.to(roomId).emit('updateState', room);
                             return;
                         } else {
                             room.currentSet++;
-                            room.players.forEach(p => p.score = 0);
+                            room.message = `【セット ${room.currentSet} 開始】勝者: ${player.username}！次のセットへ`;
                         }
+                    } else {
+                        room.message = `ラウンド勝利: ${player.username}！次の問題へ...`;
                     }
+
                     room.isReviewing = false;
                     initGame(room);
-                    room.message = `次の問題！ 5枚すべて使って「15」を作れ！`;
                     io.to(roomId).emit('updateState', room);
                 }, 10000);
 
@@ -164,8 +168,23 @@ io.on('connection', (socket) => {
         }
     });
 
+    // 切断時の処理（相手が切断したら残った方の勝ちにする）
     socket.on('disconnect', () => {
         if (waitingPlayer === socket) waitingPlayer = null;
+
+        for (const roomId in rooms) {
+            const room = rooms[roomId];
+            const playerIndex = room.players.findIndex(p => p.id === socket.id);
+            if (playerIndex !== -1 && !room.isGameOver) {
+                room.isGameOver = true;
+                const opponent = room.players[1 - playerIndex];
+                room.message = `⚠️ 対戦相手が切断しました。『${opponent.username}』の不戦勝です！`;
+                io.to(roomId).emit('updateState', room);
+                setTimeout(() => {
+                    delete rooms[roomId];
+                }, 5000);
+            }
+        }
     });
 });
 
