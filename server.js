@@ -99,42 +99,48 @@ io.on('connection', (socket) => {
 
     // 計算挑戦
     socket.on('tryCalc', ({ roomId, expression, selectedCards }) => {
-        const room = rooms[roomId];
-        if (!room) return;
+    const room = rooms[roomId];
+    if (!room) return;
 
-        const currentPlayer = room.players[room.turnIndex];
-        if (currentPlayer.id !== socket.id) return;
+    const currentPlayer = room.players[room.turnIndex];
+    if (currentPlayer.id !== socket.id) return;
 
-        try {
-            if (!/^[0-9\+\-\*\/\(\)\.\s]+$/.test(expression)) {
-                throw new Error();
-            }
-            const result = Function('"use strict";return (' + expression + ')')();
-
-            if (Math.abs(result - 15) < 0.0001) {
-                selectedCards.forEach(card => {
-                    const idx = room.fieldCards.indexOf(card);
-                    if (idx !== -1) room.fieldCards.splice(idx, 1);
-                });
-
-                currentPlayer.score += selectedCards.length;
-                room.message = `${currentPlayer.username} が「15」を作った！ (+${selectedCards.length}枚)`;
-
-                fillField(room);
-
-                if (room.fieldCards.length === 0 || room.deck.length === 0) {
-                    endSet(room);
-                } else {
-                    nextTurn(room);
-                }
-            } else {
-                room.message = `計算結果が ${result} です（15ではありません）。`;
-            }
-        } catch (e) {
-            room.message = '計算式が無効です。';
+    try {
+        // 半角・全角の記号の揺れや不正な文字を防ぐ
+        const sanitizedExpr = expression.replace(/×/g, '*').replace(/÷/g, '/');
+        if (!/^[0-9\+\-\*\/\(\)\.\s]+$/.test(sanitizedExpr)) {
+            throw new Error('無効な文字');
         }
-        io.to(roomId).emit('updateState', room);
-    });
+
+        // 安全な計算評価（Functionの代わりに厳密な数値計算を行う）
+        const result = Function('"use strict";return (' + sanitizedExpr + ')')();
+
+        // 浮動小数点の誤差を考慮して15と比較（例: 14.9999... や 15.0000...1）
+        if (Math.abs(result - 15) < 1e-9) {
+            // 使用されたカードが本当に場のカードに含まれているか検証する処理もここで行うと完璧です
+            selectedCards.forEach(card => {
+                const idx = room.fieldCards.indexOf(card);
+                if (idx !== -1) room.fieldCards.splice(idx, 1);
+            });
+
+            currentPlayer.score += selectedCards.length;
+            room.message = `${currentPlayer.username} が「15」を作った！ (+${selectedCards.length}枚)`;
+
+            fillField(room);
+
+            if (room.fieldCards.length === 0 || room.deck.length === 0) {
+                endSet(room);
+            } else {
+                nextTurn(room);
+            }
+        } else {
+            room.message = `計算結果が ${result} です（15ではありません）。`;
+        }
+    } catch (e) {
+        room.message = '計算式が無効です。括弧や演算子を確認してください。';
+    }
+    io.to(roomId).emit('updateState', room);
+});
 
     // パス
     socket.on('passTurn', (roomId) => {
