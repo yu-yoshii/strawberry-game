@@ -66,7 +66,7 @@
         <h1>🍓 ロビー 🍓</h1>
         <div style="background: white; display: inline-block; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
             <h3 id="welcome-msg"></h3>
-            <p>ルール：場の5枚のカードを<strong>すべて使って</strong>「15」を早く作れ！（3本勝負・2セット先取で勝利）</p>
+            <p>ルール：場の5枚のカードを<strong>すべて使って</strong>「15」を早く作れ！（3本先取で勝利・勝利でレートUP↑）</p>
             <button class="main-btn" onclick="startMatching()" style="font-size: 18px; padding: 12px 25px;">マッチング開始</button>
             <br><br>
             <button onclick="logout()" style="background: none; border: none; color: #888; cursor: pointer; text-decoration: underline;">ログアウト</button>
@@ -82,7 +82,7 @@
 
     <!-- 4. ゲーム画面 -->
     <div id="screen-game" class="screen">
-        <h2 id="room-info">セット 1 / 3</h2>
+        <h2 id="room-info">ラウンド 1</h2>
         <div id="message">読み込み中...</div>
         <div id="timer-box"></div>
         <div id="pass-status"></div>
@@ -113,7 +113,7 @@
         <div id="status" style="font-size: 18px;"></div>
     </div>
 
-    <div id="version-display" class="version-tag">v1.4.3</div>
+    <div id="version-display" class="version-tag">v1.5.0</div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
@@ -123,7 +123,6 @@
         let reviewTimer = null;
         let isPassRequested = false;
 
-        // ページ読み込み時のセッション自動復元（サーバー再起動・リロード対策）
         window.addEventListener('DOMContentLoaded', () => {
             const savedUserId = localStorage.getItem('strawberry_user_id');
             if (savedUserId) {
@@ -139,7 +138,6 @@
             }
         });
 
-        // サーバーが再接続したときにもセッションを自動で復元させる
         socket.on('connect', () => {
             const savedUserId = localStorage.getItem('strawberry_user_id');
             if (savedUserId && !currentUser) {
@@ -232,10 +230,9 @@
 
             document.getElementById('message').innerText = state.message;
             
-            // 【修正】セット数がリアルタイムに正しく表示されるように反映
-            document.getElementById('room-info').innerText = `セット ${state.currentSet} / 3`;
+            // ラウンド数を表示
+            document.getElementById('room-info').innerText = `ラウンド ${state.currentRound}`;
 
-            // 自分自身の最新レート同期と保持
             const meInState = state.players.find(p => p.dbId === currentUser?.id);
             if (meInState) {
                 currentUser.rating = meInState.rating;
@@ -267,11 +264,11 @@
             document.getElementById('timer-box').innerText = '';
             if (state.isReviewing && !state.isGameOver) {
                 let timeLeft = 10;
-                document.getElementById('timer-box').innerText = `次のラウンドまで: ${timeLeft}秒`;
+                document.getElementById('timer-box').innerText = `次の問題まで: ${timeLeft}秒`;
                 reviewTimer = setInterval(() => {
                     timeLeft--;
                     if (timeLeft > 0) {
-                        document.getElementById('timer-box').innerText = `次のラウンドまで: ${timeLeft}秒`;
+                        document.getElementById('timer-box').innerText = `次の問題まで: ${timeLeft}秒`;
                     } else {
                         clearInterval(reviewTimer);
                         document.getElementById('timer-box').innerText = '';
@@ -281,8 +278,7 @@
 
             if (state.isGameOver) {
                 document.getElementById('back-lobby-btn').style.display = 'inline-block';
-                const winner = state.players[0].sets > state.players[1].sets ? state.players[0] : 
-                               state.players[1].sets > state.players[0].sets ? state.players[1] : null;
+                const winner = state.players[0].score > state.players[1].score ? state.players[0] : state.players[1];
                 
                 if (winner && winner.dbId === currentUser?.id) {
                     document.getElementById('victory-text').innerHTML = `おめでとう！王国を制覇した！<br><b>レート +24 UP！ (現在: ${winner.rating})</b>`;
@@ -316,7 +312,7 @@
             state.players.forEach(p => {
                 const isMe = p.dbId === currentUser?.id;
                 statusHtml += `${isMe ? '<b>[あなた]</b> ' : ''}${p.username} (レート: ${p.rating})<br>`;
-                statusHtml += `獲得セット数: 🏆 ${p.sets}勝 | ラウンドポイント: ${p.score} / 3<br><br>`;
+                statusHtml += `獲得ポイント: 🏆 ${p.score} / 3勝<br><br>`;
             });
             document.getElementById('status').innerHTML = statusHtml;
         });

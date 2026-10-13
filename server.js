@@ -11,7 +11,7 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-const VERSION = "v1.4.3";
+const VERSION = "v1.5.0";
 
 const dbPath = path.resolve(__dirname, 'users.db');
 const db = new sqlite3.Database(dbPath, (err) => {
@@ -89,15 +89,15 @@ io.on('connection', (socket) => {
                     roomId,
                     version: VERSION,
                     players: [
-                        { id: p1.id, dbId: p1.dbId, username: 'Player1', rating: 1000, score: 0, sets: 0, passRequested: false },
-                        { id: p2.id, dbId: row.id, username: row.username, rating: row.rating, score: 0, sets: 0, passRequested: false }
+                        { id: p1.id, dbId: p1.dbId, username: 'Player1', rating: 1000, score: 0, passRequested: false },
+                        { id: p2.id, dbId: row.id, username: row.username, rating: row.rating, score: 0, passRequested: false }
                     ],
                     deck: [],
                     fieldCards: [],
-                    currentSet: 1,
+                    currentRound: 1,
                     isReviewing: false,
                     isGameOver: false,
-                    message: '3本勝負（2セット先取）開始！ 5枚すべて使って「15」を作れ！'
+                    message: '3本先取バトル開始！ 5枚すべて使って「15」を作れ！'
                 };
 
                 db.get(`SELECT id, username, rating FROM users WHERE id = ?`, [p1.dbId], (err, p1Row) => {
@@ -186,32 +186,24 @@ io.on('connection', (socket) => {
                 setTimeout(() => {
                     if (!rooms[roomId]) return;
 
-                    // 3ラウンド先取でセット獲得
+                    // 3ポイント先取でゲーム終了
                     if (player.score >= 3) {
-                        player.sets++; // セット数加算
-                        room.players.forEach(p => p.score = 0); // ラウンドスコアリセット
+                        room.isGameOver = true;
+                        const winner = player;
+                        const loser = room.players.find(p => p.id !== winner.id);
 
-                        // 【2セット先取】または3セット目到達で試合終了
-                        if (player.sets >= 2 || room.currentSet >= 3) {
-                            room.isGameOver = true;
-                            const winner = room.players[0].sets > room.players[1].sets ? room.players[0] : room.players[1];
-                            const loser = room.players.find(p => p.id !== winner.id);
-
-                            updateRating(winner.dbId, true, (newR) => {
-                                winner.rating = newR;
-                                updateRating(loser.dbId, false, (newR2) => {
-                                    loser.rating = newR2;
-                                    room.message = `🏆 試合終了！ 勝者: ${winner.username} 🎉`;
-                                    io.to(roomId).emit('updateState', room);
-                                });
+                        updateRating(winner.dbId, true, (newR) => {
+                            winner.rating = newR;
+                            updateRating(loser.dbId, false, (newR2) => {
+                                loser.rating = newR2;
+                                room.message = `🏆 試合終了！ 勝者: ${winner.username} 🎉`;
+                                io.to(roomId).emit('updateState', room);
                             });
-                            return;
-                        } else {
-                            // 【修正】次のセットに進んだときに currentSet を確実にインクリメント
-                            room.currentSet++;
-                            room.message = `【セット ${room.currentSet} 開始】前セット勝者: ${player.username}！`;
-                        }
+                        });
+                        return;
                     } else {
+                        // 次のラウンドへ
+                        room.currentRound++;
                         room.message = `ラウンド勝利: ${player.username}！次の問題へ...`;
                     }
 
