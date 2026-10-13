@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -6,7 +7,7 @@
     <style>
         body { font-family: sans-serif; text-align: center; background: #fff0f5; color: #333; margin-top: 20px; }
         .card { width: 55px; height: 80px; background: white; border: 2px solid #ff69b4; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold; cursor: pointer; margin: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .card.selected { background: #ffb6c1; transform: translateY(-5px); }
+        .card:hover { background: #ffe4e1; }
         .calc-btn { width: 50px; height: 50px; font-size: 20px; margin: 4px; background: #ff69b4; color: white; border: none; border-radius: 8px; cursor: pointer; }
         .calc-btn:hover { background: #db0073; }
         input, button.main-btn { padding: 10px; font-size: 16px; border-radius: 5px; margin: 5px; }
@@ -15,6 +16,7 @@
         .screen { display: none; }
         .screen.active { display: block; }
         #message { font-size: 18px; color: #d81b60; font-weight: bold; margin: 15px; }
+        .version-tag { position: fixed; bottom: 10px; right: 15px; font-size: 14px; color: #888; background: rgba(255,255,255,0.8); padding: 4px 8px; border-radius: 4px; }
     </style>
 </head>
 <body>
@@ -37,6 +39,7 @@
         <h1>🍓 ロビー 🍓</h1>
         <div style="background: white; display: inline-block; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
             <h3 id="welcome-msg"></h3>
+            <p>ルール：場の5枚のカードを<strong>すべて使って</strong>「15」を早く作った方の勝ち！</p>
             <button class="main-btn" onclick="startMatching()" style="font-size: 18px; padding: 12px 25px;">マッチング開始</button>
         </div>
     </div>
@@ -53,11 +56,12 @@
         <h2 id="room-info">3セットマッチ</h2>
         <div id="message">読み込み中...</div>
         
-        <h3>場のカード（クリックして式に追加）</h3>
+        <h3>場のカード（クリックすると式に入力されます）</h3>
         <div id="field-cards"></div>
 
         <div>
-            <input type="text" id="expression" readonly style="width: 320px; text-align: center; font-size: 20px;"><br>
+            <!-- 自由入力・編集可能な式入力欄 -->
+            <input type="text" id="expression" style="width: 350px; text-align: center; font-size: 22px;" placeholder="例: (1+2)*(3+4)-5"><br>
             <!-- 計算用ボタンパッド -->
             <div>
                 <button class="calc-btn" onclick="appendExpr('+')">+</button>
@@ -66,23 +70,24 @@
                 <button class="calc-btn" onclick="appendExpr('/')">÷</button>
                 <button class="calc-btn" onclick="appendExpr('(')">(</button>
                 <button class="calc-btn" onclick="appendExpr(')')">)</button>
-                <button class="calc-btn" onclick="clearExpr()" style="background:#777;">クリア</button>
+                <button class="calc-btn" onclick="backspaceExpr()" style="background:#888;" title="1文字消す">←</button>
+                <button class="calc-btn" onclick="clearExpr()" style="background:#555;">クリア</button>
             </div>
             <br>
-            <button class="main-btn" onclick="sendCalc()" style="font-size: 18px; padding: 12px 30px;">「15」を作る！</button>
-            <button class="main-btn" onclick="passTurn()" style="background: #777; font-size: 18px; padding: 12px 30px;">パス</button>
+            <button id="submit-btn" class="main-btn" onclick="sendCalc()" style="font-size: 18px; padding: 12px 40px; background: #28a745;">「15」で早押し解答！</button>
         </div>
 
         <h3>対戦状況</h3>
         <div id="status" style="font-size: 18px;"></div>
     </div>
 
+    <div id="version-display" class="version-tag">v1.1.0</div>
+
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
         let currentUser = null;
         let currentGameRoom = null;
-        let selectedCards = []; // 実際に選択されたカードのオブジェクト（インデックス管理用）
 
         function showScreen(screenId) {
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -121,98 +126,84 @@
             document.getElementById('waiting-text').innerText = msg;
         });
 
+        socket.on('notify', (msg) => {
+            alert(msg);
+        });
+
         socket.on('updateState', (state) => {
             showScreen('screen-game');
             currentGameRoom = state.roomId;
-            selectedCards = []; // セット更新やターンごとに選択をリセット
-            updateExpressionDisplay();
+            document.getElementById('version-display').innerText = state.version;
 
             document.getElementById('message').innerText = state.message;
             document.getElementById('room-info').innerText = `セット ${state.currentSet} / 3`;
 
-            // 場札の描画
+            // 答え合わせ中（レビュー中）は入力をロック
+            const isLocked = state.isReviewing;
+            document.getElementById('expression').disabled = isLocked;
+            document.getElementById('submit-btn').disabled = isLocked;
+
+            // 場札の描画（クリックするとその数字が入力欄のカーソル位置または末尾に追加される）
             const fieldDiv = document.getElementById('field-cards');
             fieldDiv.innerHTML = '';
-            state.fieldCards.forEach((num, index) => {
+            state.fieldCards.forEach(num => {
                 const card = document.createElement('div');
-                const isSelected = selectedCards.some(c => c.uniqueId === index);
-                card.className = 'card' + (isSelected ? ' selected' : '');
+                card.className = 'card';
                 card.innerText = num;
-                card.onclick = () => toggleCard(num, index);
+                card.onclick = () => {
+                    if (!isLocked) appendExpr(num.toString());
+                };
                 fieldDiv.appendChild(card);
             });
 
-            // ステータス
+            // ステータス表示
             let statusHtml = '';
             state.players.forEach(p => {
                 const isMe = p.id === socket.id;
                 statusHtml += `${isMe ? '<b>[あなた]</b> ' : ''}${p.username} (レート: ${p.rating})<br>`;
-                statusHtml += `獲得枚数: ${p.score}枚 | 取得セット数: ${p.sets}勝<br><br>`;
+                statusHtml += `正解数: ${p.score} | 取得セット数: ${p.sets}勝<br><br>`;
             });
-            const myTurn = state.players[state.turnIndex].id === socket.id;
-            statusHtml += `<b>現在のターン: ${myTurn ? 'あなたの番です！' : '相手の番です...'}</b>`;
             document.getElementById('status').innerHTML = statusHtml;
         });
 
-        // カードをクリックした時の処理（重複選択や個別管理に対応）
-        function toggleCard(num, index) {
-            const existingIndex = selectedCards.findIndex(c => c.uniqueId === index);
-            if (existingIndex > -1) {
-                selectedCards.splice(existingIndex, 1);
-            } else {
-                selectedCards.push({ value: num, uniqueId: index });
-            }
-            updateFieldCardStyles();
-            updateExpressionDisplay();
-        }
-
-        // 演算子や括弧を追加する関数（文字が消えないように末尾に追加）
+        // 演算子や数字をテキストボックスに正しく安全に追加する関数
         function appendExpr(val) {
             const input = document.getElementById('expression');
-            input.value += val;
+            const start = input.selectionStart;
+            const end = input.selectionEnd;
+            const text = input.value;
+            
+            // カーソル位置に挿入
+            input.value = text.substring(0, start) + val + text.substring(end);
+            input.focus();
+            input.setSelectionRange(start + val.length, start + val.length);
         }
 
-        // 選択されたカードや入力内容からテキストボックスを更新
-        function updateExpressionDisplay() {
-            // ここでは簡易的に選択されたカードの数値を順番に並べる、または自由入力を保持する
-            // ユーザーがボタンで自由に入力できるようにするため、入力欄のクリア以外はappendExprで積み上げ式にします
-        }
+        function backspaceExpr() {
+            const input = document.getElementById('expression');
+            const start = input.selectionStart;
+            const end = input.selectionEnd;
+            const text = input.value;
 
-        function updateFieldCardStyles() {
-            const cards = document.querySelectorAll('#field-cards .card');
-            cards.forEach((card, index) => {
-                const isSelected = selectedCards.some(c => c.uniqueId === index);
-                if (isSelected) {
-                    card.classList.add('selected');
-                } else {
-                    card.classList.remove('selected');
-                }
-            });
-            // 選択されたカードの数値をスペース区切りやそのまま入力欄に反映するか、
-            // あるいはユーザーが自由に入力・編集できるようにします。
-            // 今回は分かりやすく「選択したカードのリスト」を入力欄のベースにします：
-            const exprInput = document.getElementById('expression');
-            const cardValues = selectedCards.map(c => c.value).join(' ');
-            exprInput.value = cardValues;
+            if (start !== end) {
+                input.value = text.substring(0, start) + text.substring(end);
+                input.setSelectionRange(start, start);
+            } else if (start > 0) {
+                input.value = text.substring(0, start - 1) + text.substring(start);
+                input.setSelectionRange(start - 1, start - 1);
+            }
+            input.focus();
         }
 
         function clearExpr() {
             document.getElementById('expression').value = '';
-            selectedCards = [];
-            updateFieldCardStyles();
+            document.getElementById('expression').focus();
         }
 
         function sendCalc() {
             const expression = document.getElementById('expression').value;
-            // サーバーに送るカードの数値リスト
-            const cardValues = selectedCards.map(c => c.value);
-            socket.emit('tryCalc', { roomId: currentGameRoom, expression, selectedCards: cardValues });
-            clearExpr();
-        }
-
-        function passTurn() {
-            socket.emit('passTurn', currentGameRoom);
-            clearExpr();
+            if (!expression.trim()) return;
+            socket.emit('tryCalc', { roomId: currentGameRoom, expression });
         }
     </script>
 </body>
