@@ -11,7 +11,7 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-const VERSION = "v1.8.0";
+const VERSION = "v1.8.2";
 
 const dbPath = path.resolve(__dirname, 'users.db');
 const db = new sqlite3.Database(dbPath, (err) => {
@@ -122,7 +122,7 @@ function evaluateExpression(expr) {
     return val;
 }
 
-let rooms = {}; // ルーム管理 { roomId: roomState }
+let rooms = {};
 
 function getLobbyInfo() {
     return new Promise((resolve) => {
@@ -144,6 +144,18 @@ async function broadcastLobbyData() {
     io.emit('lobbyData', data);
 }
 
+// 順位に応じた基本レート変動量を返す関数
+function getBaseRatingChange(rankIndex, totalPlayers) {
+    if (totalPlayers === 2) {
+        return rankIndex === 0 ? 24 : -12;
+    }
+    // 3人以上の場合のベース変動
+    if (rankIndex === 0) return 24;
+    if (rankIndex === 1) return 4;
+    if (rankIndex === 2) return -8;
+    return -16; // 4位以降
+}
+
 io.on('connection', (socket) => {
     console.log('接続:', socket.id);
 
@@ -163,7 +175,6 @@ io.on('connection', (socket) => {
         socket.emit('lobbyData', data);
     });
 
-    // 部屋を作成する
     socket.on('createRoom', ({ userId }) => {
         db.get(`SELECT id, username, rating FROM users WHERE id = ?`, [userId], (err, row) => {
             if (err || !row) return;
@@ -198,7 +209,6 @@ io.on('connection', (socket) => {
         });
     });
 
-    // 部屋に参加する
     socket.on('joinRoom', ({ roomId, userId }) => {
         const room = rooms[roomId];
         if (!room || room.isGameStarted || room.players.length >= 4) {
@@ -230,11 +240,10 @@ io.on('connection', (socket) => {
         });
     });
 
-    // ホストがゲームを開始する
     socket.on('startGame', ({ roomId }) => {
         const room = rooms[roomId];
         if (!room || room.hostId !== socket.id || room.isGameStarted) return;
-        if (room.players.length < 1) { // 1人でもテストできるようにするか、2人以上に制限するか
+        if (room.players.length < 1) {
             socket.emit('notify', 'プレイヤーが足りません。');
             return;
         }
@@ -311,23 +320,52 @@ io.on('connection', (socket) => {
 
                     if (player.score >= 3) {
                         room.isGameOver = true;
+                        
+                        // --- 同点（タイ）を考慮した公平なレート計算処理 ---
                         const sortedPlayers = [...room.players].sort((a, b) => b.score - a.score);
+                        const totalPlayers = sortedPlayers.length;
+
+                        // 同じスコアのプレイヤー同士をグループ化
+                        let rankGroups = [];
+                        let i = 0;
+                        while (i < totalPlayers) {
+                            let group = [sortedPlayers[i]];
+                            let j = i + 1;
+                            while (j < totalPlayers && sortedPlayers[j].score === sortedPlayers[i].score) {
+                                group.push(sortedPlayers[j]);
+                                j++;
+                            }
+                            rankGroups.push(group);
+                            i = j;
+                        }
+
+                        // 各グループごとに占める順位範囲のベース変動の平均を計算して割り当て
+                        let calculatedChanges = new Map();
+                        let currentRankIndex = 0;
+
+                        rankGroups.forEach(group => {
+                            let groupSize = group.length;
+                            let sumChanges = 0;
+                            for (let k = 0; k < groupSize; k++) {
+                                sumChanges += getBaseRatingChange(currentRankIndex + k, totalPlayers);
+                            }
+                            let avgChange = Math.round(sumChanges / groupSize);
+                            group.forEach(p => {
+                                calculatedChanges.set(p.dbId, avgChange);
+                            });
+                            currentRankIndex += groupSize;
+                        });
+
                         let processedCount = 0;
-
-                        sortedPlayers.forEach((p, index) => {
-                            let change = 0;
-                            if (index === 0) change = 24;
-                            else if (index === 1) change = room.players.length === 2 ? -12 : 4;
-                            else if (index === 2) change = -8;
-                            else change = -16;
-
+                        sortedPlayers.forEach(p => {
+                            let change = calculatedChanges.get(p.dbId) || 0;
                             db.get(`SELECT rating FROM users WHERE id = ?`, [p.dbId], (err, row) => {
                                 if (!err && row) {
                                     let newRating = Math.max(100, row.rating + change);
                                     db.run(`UPDATE users SET rating = ? WHERE id = ?`, [newRating, p.dbId], () => {
                                         p.rating = newRating;
                                         processedCount++;
-                                        if (processedCount === sortedPlayers.length) {
+                                        if (processedCount === totalPlayers) {
                                             room.message = `🏆 試合終了！ 勝者: ${sortedPlayers[0].username} 🎉`;
                                             io.to(roomId).emit('updateState', room);
                                             broadcastLobbyData();
@@ -361,12 +399,10 @@ io.on('connection', (socket) => {
             const playerIndex = room.players.findIndex(p => p.id === socket.id);
             if (playerIndex !== -1) {
                 if (!room.isGameStarted) {
-                    // ゲーム開始前ならルームから除外
                     room.players.splice(playerIndex, 1);
                     if (room.players.length === 0) {
                         delete rooms[roomId];
                     } else {
-                        // ホストがいなくなったら新しい人をホストに
                         if (room.hostId === socket.id) {
                             room.hostId = room.players[0].id;
                             room.hostName = room.players[0].username;
@@ -374,12 +410,43 @@ io.on('connection', (socket) => {
                         io.to(roomId).emit('updateState', room);
                     }
                 } else if (!room.isGameOver) {
-                    // ゲーム中なら切断負け扱い
-                    room.isGameOver = true;
                     const disconnectedPlayer = room.players[playerIndex];
-                    room.message = `⚠️ 対戦相手 (${disconnectedPlayer.username}) が切断しました。試合終了。`;
-                    io.to(roomId).emit('updateState', room);
-                    setTimeout(() => { delete rooms[roomId]; }, 5000);
+
+                    db.get(`SELECT rating FROM users WHERE id = ?`, [disconnectedPlayer.dbId], (err, row) => {
+                        if (!err && row) {
+                            let newRating = Math.max(100, row.rating - 16);
+                            db.run(`UPDATE users SET rating = ? WHERE id = ?`, [newRating, disconnectedPlayer.dbId], () => {
+                                broadcastLobbyData();
+                            });
+                        }
+                    });
+
+                    room.players.splice(playerIndex, 1);
+
+                    if (room.players.length < 2) {
+                        room.isGameOver = true;
+                        if (room.players.length === 1) {
+                            room.message = `⚠️ ${disconnectedPlayer.username} が切断しました。残りのプレイヤー (${room.players[0].username}) の勝利となります！`;
+                            const winner = room.players[0];
+                            db.get(`SELECT rating FROM users WHERE id = ?`, [winner.dbId], (err, row) => {
+                                if (!err && row) {
+                                    let newRating = row.rating + 15;
+                                    db.run(`UPDATE users SET rating = ? WHERE id = ?`, [newRating, winner.dbId], () => {
+                                        winner.rating = newRating;
+                                        io.to(roomId).emit('updateState', room);
+                                        broadcastLobbyData();
+                                    });
+                                }
+                            });
+                        } else {
+                            room.message = `⚠️ 参加者がいなくなったため試合終了となりました。`;
+                            io.to(roomId).emit('updateState', room);
+                        }
+                        setTimeout(() => { delete rooms[roomId]; }, 5000);
+                    } else {
+                        room.message = `⚠️ ${disconnectedPlayer.username} が切断しました（脱落）。ゲームを続行します！`;
+                        io.to(roomId).emit('updateState', room);
+                    }
                 }
             }
         }
