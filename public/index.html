@@ -5,8 +5,8 @@
     <title>いちご王国オンライン</title>
     <style>
         body { font-family: sans-serif; text-align: center; background: #fff0f5; color: #333; margin-top: 20px; position: relative; overflow-x: hidden; }
-        .card { width: 55px; height: 80px; background: white; border: 2px solid #ff69b4; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold; cursor: pointer; margin: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: transform 0.1s; }
-        .card:hover { background: #ffe4e1; transform: translateY(-3px); }
+        .card { width: 55px; height: 80px; background: white; border: 2px solid #ff69b4; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold; cursor: pointer; margin: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .card:hover { background: #ffe4e1; }
         .calc-btn { width: 50px; height: 50px; font-size: 20px; margin: 4px; background: #ff69b4; color: white; border: none; border-radius: 8px; cursor: pointer; }
         .calc-btn:hover { background: #db0073; }
         input, button.main-btn { padding: 10px; font-size: 16px; border-radius: 5px; margin: 5px; }
@@ -18,7 +18,6 @@
         .version-tag { position: fixed; bottom: 10px; right: 15px; font-size: 14px; color: #888; background: rgba(255,255,255,0.8); padding: 4px 8px; border-radius: 4px; }
         #timer-box { font-size: 18px; color: #c71585; font-weight: bold; margin-top: 5px; }
         #pass-status { font-size: 16px; color: #ff8c00; font-weight: bold; margin: 5px; }
-        #live-preview { font-size: 15px; color: #555; margin-top: 5px; min-height: 22px; font-weight: bold; }
 
         .lobby-container { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-top: 15px; }
         .lobby-box { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 320px; text-align: left; }
@@ -54,7 +53,7 @@
 
     <div id="victory-banner" class="victory-banner">🍓 👑 BATTLE FINISHED! 👑 🍓<br><span id="victory-text" style="font-size: 22px;"></span></div>
 
-    <!-- 1. ログイン画面 -->
+    <!-- 1. ログイン・新規登録画面 -->
     <div id="screen-auth" class="screen active">
         <h1>🍓 いちご王国オンライン 🍓</h1>
         <div style="background: white; display: inline-block; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
@@ -72,11 +71,8 @@
         <h1>🍓 ロビー 🍓</h1>
         <div style="background: white; display: inline-block; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 850px;">
             <h3 id="welcome-msg" style="margin-bottom: 5px;"></h3>
-            <p style="color: #666; font-size: 14px;">ルール：場のカードをすべて使って「15」を早く作れ！</p>
-            <div>
-                <button class="main-btn" onclick="startMatching()" style="font-size: 18px; padding: 12px 25px; background: #ff1493;">マルチ対戦開始（2〜4人）</button>
-                <button class="main-btn" onclick="startSolo()" style="font-size: 18px; padding: 12px 25px; background: #28a745;">ソロ練習モード</button>
-            </div>
+            <p style="color: #666; font-size: 14px;">ルール：場の5枚のカードをすべて使って「15」を早く作れ！（2〜4人対戦・3本先取で勝利）</p>
+            <button class="main-btn" onclick="startMatching()" style="font-size: 18px; padding: 12px 30px;">マッチング開始（2〜4人）</button>
             
             <div class="lobby-container">
                 <div class="lobby-box">
@@ -97,7 +93,7 @@
     <!-- 3. マッチング待機画面 -->
     <div id="screen-waiting" class="screen">
         <h1>マッチメイキング</h1>
-        <p id="waiting-text" style="font-size: 18px; color: #555;">対戦相手を探しています...</p>
+        <p id="waiting-text" style="font-size: 18px; color: #555;">対戦相手を探しています (2〜4人)...</p>
         <button class="main-btn" onclick="cancelMatching()" style="background: #777;">キャンセル</button>
     </div>
 
@@ -112,8 +108,7 @@
         <div id="field-cards"></div>
 
         <div>
-            <input type="text" id="expression" style="width: 350px; text-align: center; font-size: 22px;" placeholder="例: (1+2)*(3+4)-5" oninput="updateLivePreview()"><br>
-            <div id="live-preview">計算結果: -</div>
+            <input type="text" id="expression" style="width: 350px; text-align: center; font-size: 22px;" placeholder="例: (1+2)*(3+4)-5"><br>
             <div>
                 <button class="calc-btn" onclick="appendExpr('+')">+</button>
                 <button class="calc-btn" onclick="appendExpr('-')">-</button>
@@ -125,8 +120,8 @@
                 <button class="calc-btn" onclick="clearExpr()" style="background:#555;">クリア</button>
             </div>
             <br>
-            <button id="submit-btn" class="main-btn" onclick="sendCalc()" style="font-size: 18px; padding: 12px 40px; background: #28a745;">「15」で解答送信！</button>
-            <button id="pass-btn" class="main-btn" onclick="togglePass()" style="font-size: 16px; padding: 12px 20px; background: #ff8c00;">カードを更新 (パス)</button>
+            <button id="submit-btn" class="main-btn" onclick="sendCalc()" style="font-size: 18px; padding: 12px 40px; background: #28a745;">「15」で早押し解答！</button>
+            <button id="pass-btn" class="main-btn" onclick="togglePass()" style="font-size: 16px; padding: 12px 20px; background: #ff8c00;">パスを希望する</button>
             <br><br>
             <button id="back-lobby-btn" class="main-btn" onclick="returnToLobby()" style="background: #666; display: none;">ロビーに戻る</button>
         </div>
@@ -135,14 +130,13 @@
         <div id="status" style="font-size: 16px;"></div>
     </div>
 
-    <div id="version-display" class="version-tag">v1.8.0</div>
+    <div id="version-display" class="version-tag">v1.7.0</div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
         let currentUser = null;
         let currentGameRoom = null;
-        let currentFieldCards = [];
         let reviewTimer = null;
         let isPassRequested = false;
 
@@ -155,9 +149,6 @@
                         updateWelcomeMsg();
                         showScreen('screen-lobby');
                         socket.emit('requestLobbyData');
-                        if (res.reconnectRoom) {
-                            socket.emit('updateState', res.reconnectRoom);
-                        }
                     } else {
                         localStorage.removeItem('strawberry_user_id');
                     }
@@ -221,12 +212,6 @@
             socket.emit('startMatchmaking', currentUser.id);
         }
 
-        function startSolo() {
-            if (!currentUser) return;
-            isPassRequested = false;
-            socket.emit('startSoloMode', currentUser.id);
-        }
-
         function cancelMatching() {
             socket.emit('cancelMatchmaking');
             showScreen('screen-lobby');
@@ -262,6 +247,14 @@
 
         function togglePass() {
             isPassRequested = !isPassRequested;
+            const btn = document.getElementById('pass-btn');
+            if (isPassRequested) {
+                btn.innerText = 'パスを解除する';
+                btn.style.background = '#6c757d';
+            } else {
+                btn.innerText = 'パスを希望する';
+                btn.style.background = '#ff8c00';
+            }
             socket.emit('requestPass', { roomId: currentGameRoom, pass: isPassRequested });
         }
 
@@ -276,11 +269,10 @@
         socket.on('updateState', (state) => {
             showScreen('screen-game');
             currentGameRoom = state.roomId;
-            currentFieldCards = state.fieldCards;
             document.getElementById('version-display').innerText = state.version;
 
             document.getElementById('message').innerText = state.message;
-            document.getElementById('room-info').innerText = state.isSolo ? '🍓 ソロ練習モード' : `ラウンド ${state.currentRound}`;
+            document.getElementById('room-info').innerText = `ラウンド ${state.currentRound}`;
 
             const meInState = state.players.find(p => p.dbId === currentUser?.id);
             if (meInState) {
@@ -289,11 +281,43 @@
                 localStorage.setItem('strawberry_user_id', currentUser.id);
             }
 
+            if (!state.isReviewing && !state.isGameOver) {
+                isPassRequested = false;
+                const passBtn = document.getElementById('pass-btn');
+                passBtn.innerText = 'パスを希望する';
+                passBtn.style.background = '#ff8c00';
+            }
+
+            let passMsgHtml = '';
+            state.players.forEach(p => {
+                if (p.passRequested) {
+                    passMsgHtml += `⚠️ ${p.username} がパスを希望しています<br>`;
+                }
+            });
+            document.getElementById('pass-status').innerHTML = passMsgHtml;
+
             const isLocked = state.isReviewing || state.isGameOver;
             document.getElementById('expression').disabled = isLocked;
             document.getElementById('submit-btn').disabled = isLocked;
+            document.getElementById('pass-btn').disabled = state.isGameOver;
 
-            if (state.isGameOver && !state.isSolo) {
+            clearInterval(reviewTimer);
+            document.getElementById('timer-box').innerText = '';
+            if (state.isReviewing && !state.isGameOver) {
+                let timeLeft = 10;
+                document.getElementById('timer-box').innerText = `次の問題まで: ${timeLeft}秒`;
+                reviewTimer = setInterval(() => {
+                    timeLeft--;
+                    if (timeLeft > 0) {
+                        document.getElementById('timer-box').innerText = `次の問題まで: ${timeLeft}秒`;
+                    } else {
+                        clearInterval(reviewTimer);
+                        document.getElementById('timer-box').innerText = '';
+                    }
+                }, 1000);
+            }
+
+            if (state.isGameOver) {
                 document.getElementById('back-lobby-btn').style.display = 'inline-block';
                 const sorted = [...state.players].sort((a, b) => b.score - a.score);
                 const winner = sorted[0];
@@ -305,16 +329,13 @@
                     document.getElementById('victory-text').innerHTML = `試合終了！勝者は ${winner.username} です。<br><b>レート更新 (現在: ${meInState ? meInState.rating : ''})</b>`;
                     document.getElementById('victory-banner').style.display = 'block';
                 }
-            } else if (state.isSolo) {
-                document.getElementById('back-lobby-btn').style.display = 'inline-block';
             } else {
                 document.getElementById('back-lobby-btn').style.display = 'none';
                 document.getElementById('victory-banner').style.display = 'none';
             }
 
-            if (state.isReviewing) {
+            if (state.isReviewing && !state.isGameOver) {
                 document.getElementById('expression').value = '';
-                document.getElementById('live-preview').innerText = '計算結果: -';
             }
 
             const fieldDiv = document.getElementById('field-cards');
@@ -332,50 +353,11 @@
             let statusHtml = '';
             state.players.forEach(p => {
                 const isMe = p.dbId === currentUser?.id;
-                statusHtml += `${isMe ? '<b>[あなた]</b> ' : ''}${p.username} ${!state.isSolo ? `(レート: ${p.rating})` : ''}<br>`;
-                statusHtml += `獲得正解数: 🏆 ${p.score} ${!state.isSolo ? '/ 3勝' : ''}<br><br>`;
+                statusHtml += `${isMe ? '<b>[あなた]</b> ' : ''}${p.username} (レート: ${p.rating})<br>`;
+                statusHtml += `獲得ポイント: 🏆 ${p.score} / 3勝<br><br>`;
             });
             document.getElementById('status').innerHTML = statusHtml;
-            updateLivePreview();
         });
-
-        function updateLivePreview() {
-            const expr = document.getElementById('expression').value;
-            const preview = document.getElementById('live-preview');
-            if (!expr.trim()) {
-                preview.innerText = '計算結果: -';
-                preview.style.color = '#555';
-                return;
-            }
-
-            try {
-                const sanitized = expr.replace(/×/g, '*').replace(/÷/g, '/');
-                if (!/^[0-9\+\-\*\/\(\)\.\s]+$/.test(sanitized)) {
-                    preview.innerText = '計算結果: 無効な文字';
-                    preview.style.color = 'red';
-                    return;
-                }
-
-                // 簡易クライアントサイド計算
-                const val = Function('"use strict";return (' + sanitized + ')')();
-                const usedNums = sanitized.match(/\d+/g)?.map(Number) || [];
-                
-                let text = `計算結果: ${val}`;
-                if (usedNums.length !== currentFieldCards.length) {
-                    text += ` (カード数: ${usedNums.length}/${currentFieldCards.length})`;
-                } else if (Math.abs(val - 15) < 1e-9) {
-                    text += ' 🎯 「15」達成！';
-                    preview.style.color = '#28a745';
-                    preview.innerText = text;
-                    return;
-                }
-                preview.style.color = '#d81b60';
-                preview.innerText = text;
-            } catch (e) {
-                preview.innerText = '計算結果: 計算中...';
-                preview.style.color = '#555';
-            }
-        }
 
         function appendExpr(val) {
             const input = document.getElementById('expression');
@@ -385,7 +367,6 @@
             input.value = text.substring(0, start) + val + text.substring(end);
             input.focus();
             input.setSelectionRange(start + val.length, start + val.length);
-            updateLivePreview();
         }
 
         function backspaceExpr() {
@@ -401,13 +382,11 @@
                 input.setSelectionRange(start - 1, start - 1);
             }
             input.focus();
-            updateLivePreview();
         }
 
         function clearExpr() {
             document.getElementById('expression').value = '';
             document.getElementById('expression').focus();
-            updateLivePreview();
         }
 
         function sendCalc() {
