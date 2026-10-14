@@ -1,14 +1,13 @@
 {
   "name": "strawberry-kingdom-online",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "postinstall": "npm rebuild sqlite3 --build-from-source"
+    "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.19.2",
     "socket.io": "^4.7.5",
-    "sqlite3": "^5.1.7"
+    "mongodb": "^6.5.0"
   }
 }

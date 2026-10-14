@@ -161,7 +161,7 @@
         <div id="status" style="font-size: 14px;"></div>
     </div>
 
-    <div id="version-display" class="version-tag">v1.8.0</div>
+    <div id="version-display" class="version-tag">v1.8.2</div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
@@ -257,7 +257,7 @@
             socket.emit('requestLobbyData');
             currentGameRoom = null;
             showScreen('screen-lobby');
-            window.location.reload(); // 簡単なリロードで状態リセット
+            window.location.reload();
         }
 
         function returnToLobby() {
