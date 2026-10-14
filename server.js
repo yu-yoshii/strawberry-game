@@ -17,7 +17,7 @@ const MONGO_URL = 'mongodb+srv://e221239_db_user:Y0u667841you@cluster0.yxjjzel.m
 const DB_NAME = 'strawberry_kingdom';
 
 let db, usersCollection;
-let rooms = {}; // ★ここに置くのが正しい位置です
+let rooms = {};
 
 // MongoDB接続とサーバー起動
 async function startServer() {
@@ -30,8 +30,6 @@ async function startServer() {
         server.listen(PORT, () => {
             console.log(`サーバー起動 (${VERSION}): ポート ${PORT}`);
         });
-
-        
     } catch (err) {
         console.error('MongoDB接続エラー:', err);
     }
@@ -411,7 +409,8 @@ io.on('connection', (socket) => {
                         });
 
                         for (let p of sortedPlayers) {
-                            let change = calculatedChanges.get(p.dbId) || 0;
+                            // ★ プレイヤーが1人のときはレートを変動させない（0にする）
+                            let change = totalPlayers === 1 ? 0 : (calculatedChanges.get(p.dbId) || 0);
                             try {
                                 const userDoc = await usersCollection.findOne({ _id: new ObjectId(p.dbId) });
                                 if (userDoc) {
@@ -447,6 +446,81 @@ io.on('connection', (socket) => {
         } catch (e) {
             socket.emit('notify', '計算式が無効です。括弧や演算子を確認してください。');
         }
+    });
+
+    // ★ 対戦中の「退出する」ボタン押下時の処理（切断時と同じペナルティ）
+    socket.on('leaveGame', async ({ roomId }) => {
+        const room = rooms[roomId];
+        if (!room) return;
+
+        const playerIndex = room.players.findIndex(p => p.id === socket.id);
+        if (playerIndex !== -1) {
+            const leavingPlayer = room.players[playerIndex];
+
+            // 試合が始まっている、かつゲームオーバーでなければレートを16下げる
+            if (room.isGameStarted && !room.isGameOver) {
+                try {
+                    const userDoc = await usersCollection.findOne({ _id: new ObjectId(leavingPlayer.dbId) });
+                    if (userDoc) {
+                        let newRating = Math.max(100, userDoc.rating - 16);
+                        await usersCollection.updateOne(
+                            { _id: new ObjectId(leavingPlayer.dbId) },
+                            { $set: { rating: newRating } }
+                        );
+                        broadcastLobbyData();
+                    }
+                } catch (err) {
+                    console.error(err);
+                }
+            }
+
+            room.players.splice(playerIndex, 1);
+
+            if (!room.isGameStarted) {
+                // 試合前なら普通に部屋から削除・ホスト移動
+                if (room.players.length === 0) {
+                    delete rooms[roomId];
+                } else {
+                    if (room.hostId === socket.id) {
+                        room.hostId = room.players[0].id;
+                        room.hostName = room.players[0].username;
+                    }
+                    io.to(roomId).emit('updateState', room);
+                }
+            } else if (!room.isGameOver) {
+                // 試合中の場合
+                if (room.players.length < 2) {
+                    room.isGameOver = true;
+                    if (room.players.length === 1) {
+                        room.message = `⚠️ ${leavingPlayer.username} が退出しました。残りのプレイヤー (${room.players[0].username}) の勝利となります！`;
+                        const winner = room.players[0];
+                        try {
+                            const userDoc = await usersCollection.findOne({ _id: new ObjectId(winner.dbId) });
+                            if (userDoc) {
+                                let newRating = userDoc.rating + 15;
+                                await usersCollection.updateOne(
+                                    { _id: new ObjectId(winner.dbId) },
+                                    { $set: { rating: newRating } }
+                                );
+                                winner.rating = newRating;
+                                io.to(roomId).emit('updateState', room);
+                                broadcastLobbyData();
+                            }
+                        } catch (err) {
+                            console.error(err);
+                        }
+                    } else {
+                        room.message = `⚠️ 参加者がいなくなったため試合終了となりました。`;
+                        io.to(roomId).emit('updateState', room);
+                    }
+                    setTimeout(() => { delete rooms[roomId]; }, 5000);
+                } else {
+                    room.message = `⚠️ ${leavingPlayer.username} が退出しました。ゲームを続行します！`;
+                    io.to(roomId).emit('updateState', room);
+                }
+            }
+        }
+        broadcastLobbyData();
     });
 
     socket.on('disconnect', async () => {

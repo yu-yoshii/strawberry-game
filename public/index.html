@@ -153,6 +153,7 @@
             </div>
             <button id="submit-btn" class="main-btn" onclick="sendCalc()" style="font-size: 16px; background: #28a745; width: 100%; max-width: 320px;">「15」で早押し解答！</button>
             <button id="pass-btn" class="main-btn" onclick="togglePass()" style="font-size: 14px; background: #ff8c00; width: 100%; max-width: 320px;">パスを希望する</button>
+            <button id="giveup-btn" class="main-btn" onclick="confirmLeaveGame()" style="font-size: 14px; background: #dc3545; width: 100%; max-width: 320px;">退出する（レートが下がります）</button>
             <br>
             <button id="back-lobby-btn" class="main-btn" onclick="returnToLobby()" style="background: #666; display: none; width: 100%; max-width: 320px;">ロビーに戻る</button>
         </div>
@@ -468,6 +469,14 @@
             const expression = document.getElementById('expression').value;
             if (!expression.trim()) return;
             socket.emit('tryCalc', { roomId: currentGameRoom, expression });
+        }
+        function confirmLeaveGame() {
+            if (confirm('途中で退出するとレートが16下がります。本当に退出しますか？')) {
+                socket.emit('leaveGame', { roomId: currentGameRoom });
+                currentGameRoom = null;
+                showScreen('screen-lobby');
+                window.location.reload();
+            }
         }
     </script>
 </body>
