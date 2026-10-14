@@ -12,20 +12,29 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
 const VERSION = "v1.9.0";
-// クラウド上のMongoDB Atlasに接続する場合
 const MONGO_URL = process.env.MONGO_URL || 'mongodb+srv://e221239_db_user:Y0u667841you@cluster0.yxjjzel.mongodb.net/strawberry_kingdom?retryWrites=true&w=majority&appName=Cluster0';
 const DB_NAME = 'strawberry_kingdom';
 
 let db, usersCollection;
+let rooms = {}; // ★ここに置くのが正しい位置です
 
-// MongoDB接続
-MongoClient.connect(MONGO_URL)
-    .then(client => {
+// MongoDB接続とサーバー起動
+async function startServer() {
+    try {
+        const client = await MongoClient.connect(MONGO_URL);
         console.log('MongoDB接続完了:', MONGO_URL);
         db = client.db(DB_NAME);
         usersCollection = db.collection('users');
-    })
-    .catch(err => console.error('MongoDB接続エラー:', err));
+
+        server.listen(3000, () => {
+            console.log(`サーバー起動 (${VERSION}): http://localhost:3000`);
+        });
+    } catch (err) {
+        console.error('MongoDB接続エラー:', err);
+    }
+}
+
+startServer();
 
 // ユーザー登録 API
 app.post('/api/register', async (req, res) => {
@@ -33,7 +42,10 @@ app.post('/api/register', async (req, res) => {
     if (!username || !password) return res.json({ success: false, message: '入力してください。' });
     
     try {
-        // すでに存在するかチェック
+        if (!usersCollection) {
+            return res.json({ success: false, message: 'データベースが未接続です。' });
+        }
+
         const existing = await usersCollection.findOne({ username });
         if (existing) {
             return res.json({ success: false, message: 'そのユーザー名は既に使われています。' });
@@ -47,6 +59,7 @@ app.post('/api/register', async (req, res) => {
 
         res.json({ success: true, user: { id: result.insertedId.toString(), username, rating: 1000 } });
     } catch (err) {
+        console.error('登録エラー詳細:', err);
         res.json({ success: false, message: '登録エラーが発生しました。' });
     }
 });
@@ -55,12 +68,17 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
     try {
+        if (!usersCollection) {
+            return res.json({ success: false, message: 'データベースが未接続です。' });
+        }
+
         const user = await usersCollection.findOne({ username, password });
         if (!user) {
             return res.json({ success: false, message: 'ユーザー名またはパスワードが違います。' });
         }
         res.json({ success: true, user: { id: user._id.toString(), username: user.username, rating: user.rating } });
     } catch (err) {
+        console.error('ログインエラー詳細:', err);
         res.json({ success: false, message: 'ログインエラーが発生しました。' });
     }
 });
@@ -143,8 +161,6 @@ function evaluateExpression(expr) {
     if (pos < expr.length) throw new Error('無効な式です');
     return val;
 }
-
-let rooms = {};
 
 async function getLobbyInfo() {
     try {
@@ -513,7 +529,3 @@ function initGame(room) {
         room.fieldCards.push(room.deck.pop());
     }
 }
-
-server.listen(3000, () => {
-    console.log(`サーバー起動 (${VERSION}): http://localhost:3000`);
-});
