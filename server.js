@@ -11,7 +11,7 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-const VERSION = "v1.6.0";
+const VERSION = "v1.8.0";
 
 const dbPath = path.resolve(__dirname, 'users.db');
 const db = new sqlite3.Database(dbPath, (err) => {
@@ -43,37 +43,99 @@ app.post('/api/login', (req, res) => {
     });
 });
 
-function updateRating(userId, isWinner, callback) {
-    db.get(`SELECT rating FROM users WHERE id = ?`, [userId], (err, row) => {
-        if (err || !row) return;
-        let currentRating = row.rating;
-        const change = isWinner ? 24 : -12;
-        let newRating = Math.max(100, currentRating + change);
+// 安全な数式評価パーサー
+function evaluateExpression(expr) {
+    let pos = 0;
+    function parseNumber() {
+        let start = pos;
+        while (pos < expr.length && ((expr[pos] >= '0' && expr[pos] <= '9') || expr[pos] === '.')) {
+            pos++;
+        }
+        if (start === pos) throw new Error('数値を期待しています');
+        return parseFloat(expr.substring(start, pos));
+    }
 
-        db.run(`UPDATE users SET rating = ? WHERE id = ?`, [newRating, userId], () => {
-            if (callback) callback(newRating);
-        });
-    });
+    function parseFactor() {
+        skipWhitespace();
+        if (expr[pos] === '(') {
+            pos++;
+            let val = parseExpression();
+            skipWhitespace();
+            if (expr[pos] !== ')') throw new Error('閉じ括弧が必要です');
+            pos++;
+            return val;
+        } else if (expr[pos] === '-') {
+            pos++;
+            return -parseFactor();
+        } else if (expr[pos] === '+') {
+            pos++;
+            return parseFactor();
+        } else {
+            return parseNumber();
+        }
+    }
+
+    function parseTerm() {
+        let val = parseFactor();
+        while (true) {
+            skipWhitespace();
+            if (expr[pos] === '*') {
+                pos++;
+                val *= parseFactor();
+            } else if (expr[pos] === '/') {
+                pos++;
+                let divisor = parseFactor();
+                if (divisor === 0) throw new Error('ゼロ除算です');
+                val /= divisor;
+            } else {
+                break;
+            }
+        }
+        return val;
+    }
+
+    function parseExpression() {
+        let val = parseTerm();
+        while (true) {
+            skipWhitespace();
+            if (expr[pos] === '+') {
+                pos++;
+                val += parseTerm();
+            } else if (expr[pos] === '-') {
+                pos++;
+                val -= parseTerm();
+            } else {
+                break;
+            }
+        }
+        return val;
+    }
+
+    function skipWhitespace() {
+        while (pos < expr.length && expr[pos] === ' ') {
+            pos++;
+        }
+    }
+
+    let val = parseExpression();
+    skipWhitespace();
+    if (pos < expr.length) throw new Error('無効な式です');
+    return val;
 }
 
-// ロビー情報を全員にブロードキャストする関数
 function broadcastLobbyData() {
     db.all(`SELECT username, rating FROM users ORDER BY rating DESC LIMIT 10`, [], (err, rows) => {
         if (err) return;
         const ranking = rows || [];
-        
-        // 待機中のプレイヤー名リストを作成
-        const waitingPlayers = [];
-        if (waitingPlayer && waitingPlayer.user) {
-            waitingPlayers.push(waitingPlayer.user.username);
-        }
-
+        const waitingPlayers = waitingQueue.map(s => s.user.username);
         io.emit('lobbyData', { ranking, waitingPlayers });
     });
 }
 
-let waitingPlayer = null;
+let waitingQueue = [];
+let matchTimer = null;
 let rooms = {};
+let disconnectedPlayers = {}; // 再接続用管理マップ { userId: { roomId, socketId, timeout } }
 
 io.on('connection', (socket) => {
     console.log('接続:', socket.id);
@@ -84,14 +146,64 @@ io.on('connection', (socket) => {
                 callback({ success: false });
             } else {
                 socket.user = row;
+                
+                // 再接続チェック
+                if (disconnectedPlayers[row.id]) {
+                    const info = disconnectedPlayers[row.id];
+                    clearTimeout(info.timeout);
+                    delete disconnectedPlayers[row.id];
+
+                    const room = rooms[info.roomId];
+                    if (room && !room.isGameOver) {
+                        const player = room.players.find(p => p.dbId === row.id);
+                        if (player) {
+                            player.id = socket.id;
+                            socket.join(info.roomId);
+                            socket.currentGameRoom = info.roomId;
+                            callback({ success: true, user: row, reconnectRoom: room });
+                            io.to(info.roomId).emit('updateState', room);
+                            return;
+                        }
+                    }
+                }
+
                 callback({ success: true, user: row });
             }
         });
     });
 
-    // ロビー画面を開いたときに最新情報を要求された場合
     socket.on('requestLobbyData', () => {
         broadcastLobbyData();
+    });
+
+    // ソロ練習モード開始
+    socket.on('startSoloMode', (userId) => {
+        db.get(`SELECT id, username, rating FROM users WHERE id = ?`, [userId], (err, row) => {
+            if (err || !row) return;
+            socket.user = row;
+
+            const roomId = 'solo_' + Date.now();
+            const gameState = {
+                roomId,
+                version: VERSION,
+                isSolo: true,
+                players: [
+                    { id: socket.id, dbId: row.id, username: row.username, rating: row.rating, score: 0, passRequested: false }
+                ],
+                deck: [],
+                fieldCards: [],
+                currentRound: 1,
+                isReviewing: false,
+                isGameOver: false,
+                message: '🍓 ソロ練習モード 🍓 5枚すべて使って「15」を作ろう！（制限なし）'
+            };
+
+            initGame(gameState);
+            rooms[roomId] = gameState;
+            socket.join(roomId);
+            socket.currentGameRoom = roomId;
+            socket.emit('updateState', gameState);
+        });
     });
 
     socket.on('startMatchmaking', (userId) => {
@@ -99,65 +211,48 @@ io.on('connection', (socket) => {
             if (err || !row) return;
             socket.user = row;
 
-            if (waitingPlayer && waitingPlayer.id !== socket.id) {
-                const roomId = 'room_' + Date.now();
-                const p1 = waitingPlayer;
-                const p2 = socket;
-                waitingPlayer = null;
-
-                p1.join(roomId);
-                p2.join(roomId);
-
-                const gameState = {
-                    roomId,
-                    version: VERSION,
-                    players: [
-                        { id: p1.id, dbId: p1.user.id, username: p1.user.username, rating: p1.user.rating, score: 0, passRequested: false },
-                        { id: p2.id, dbId: row.id, username: row.username, rating: row.rating, score: 0, passRequested: false }
-                    ],
-                    deck: [],
-                    fieldCards: [],
-                    currentRound: 1,
-                    isReviewing: false,
-                    isGameOver: false,
-                    message: '3本先取バトル開始！ 5枚すべて使って「15」を作れ！'
-                };
-
-                initGame(gameState);
-                rooms[roomId] = gameState;
-                io.to(roomId).emit('updateState', gameState);
-                broadcastLobbyData(); // 待機者が減ったのでロビーを更新
-            } else {
-                waitingPlayer = socket;
-                socket.emit('waiting', '対戦相手を待っています...');
-                broadcastLobbyData(); // 待機者が増えたのでロビーを更新
+            if (!waitingQueue.some(s => s.id === socket.id)) {
+                waitingQueue.push(socket);
+                socket.emit('waiting', '対戦相手を待っています (2〜4人)...');
+                broadcastLobbyData();
+                checkAndStartMatch();
             }
         });
     });
 
     socket.on('cancelMatchmaking', () => {
-        if (waitingPlayer === socket) {
-            waitingPlayer = null;
-            broadcastLobbyData(); // 待機解除されたのでロビーを更新
+        waitingQueue = waitingQueue.filter(s => s.id !== socket.id);
+        if (waitingQueue.length < 2 && matchTimer) {
+            clearTimeout(matchTimer);
+            matchTimer = null;
         }
+        broadcastLobbyData();
     });
 
     socket.on('requestPass', ({ roomId, pass }) => {
         const room = rooms[roomId];
         if (!room || room.isReviewing || room.isGameOver) return;
 
+        if (room.isSolo) {
+            initGame(room);
+            room.message = 'カードを新しく更新しました！';
+            io.to(roomId).emit('updateState', room);
+            return;
+        }
+
         const player = room.players.find(p => p.id === socket.id);
         if (!player) return;
 
         player.passRequested = pass;
+        const passCount = room.players.filter(p => p.passRequested).length;
+        const requiredPass = Math.floor(room.players.length / 2) + 1;
 
-        const bothPassed = room.players.every(p => p.passRequested);
-        if (bothPassed) {
+        if (passCount >= requiredPass) {
             room.players.forEach(p => p.passRequested = false);
-            room.message = '両者がパスを選択しました。新しいカードに更新します！';
+            room.message = '過半数がパスを選択しました。新しいカードに更新します！';
             initGame(room);
         } else {
-            room.message = `${player.username} がパスを希望しています`;
+            room.message = `${player.username} がパスを希望しています (${passCount}/${requiredPass})`;
         }
 
         io.to(roomId).emit('updateState', room);
@@ -177,23 +272,22 @@ io.on('connection', (socket) => {
             }
 
             const usedNumbers = sanitized.match(/\d+/g)?.map(Number) || [];
-            const currentField = [...room.fieldCards];
-
-            if (usedNumbers.length !== currentField.length) {
-                socket.emit('notify', `カードをちょうど5枚すべて使ってください！（現在 ${usedNumbers.length}枚）`);
+            if (usedNumbers.length !== room.fieldCards.length) {
+                socket.emit('notify', `カードをちょうど${room.fieldCards.length}枚すべて使ってください！（現在 ${usedNumbers.length}枚）`);
                 return;
             }
 
+            const currentField = [...room.fieldCards];
             for (let num of usedNumbers) {
                 const idx = currentField.indexOf(num);
                 if (idx === -1) {
-                    socket.emit('notify', `場にないカードが含まれています: ${num}`);
+                    socket.emit('notify', `場にないカード、または使いすぎのカードが含まれています: ${num}`);
                     return;
                 }
                 currentField.splice(idx, 1);
             }
 
-            const result = Function('"use strict";return (' + sanitized + ')')();
+            const result = evaluateExpression(sanitized);
 
             if (Math.abs(result - 15) < 1e-9) {
                 player.score++;
@@ -205,18 +299,35 @@ io.on('connection', (socket) => {
                 setTimeout(() => {
                     if (!rooms[roomId]) return;
 
+                    if (room.isSolo) {
+                        room.message = `🌟 正解おめでとう！次の問題へ...`;
+                        room.isReviewing = false;
+                        initGame(room);
+                        io.to(roomId).emit('updateState', room);
+                        return;
+                    }
+
                     if (player.score >= 3) {
                         room.isGameOver = true;
-                        const winner = player;
-                        const loser = room.players.find(p => p.id !== winner.id);
+                        const sortedPlayers = [...room.players].sort((a, b) => b.score - a.score);
+                        
+                        let processedCount = 0;
+                        sortedPlayers.forEach((p, index) => {
+                            let change = index === 0 ? 24 : (index === 1 && room.players.length === 2 ? -12 : (index === 1 ? 4 : -12));
 
-                        updateRating(winner.dbId, true, (newR) => {
-                            winner.rating = newR;
-                            updateRating(loser.dbId, false, (newR2) => {
-                                loser.rating = newR2;
-                                room.message = `🏆 試合終了！ 勝者: ${winner.username} 🎉`;
-                                io.to(roomId).emit('updateState', room);
-                                broadcastLobbyData(); // 試合が終わってレートが変動したためランキングを更新
+                            db.get(`SELECT rating FROM users WHERE id = ?`, [p.dbId], (err, row) => {
+                                if (!err && row) {
+                                    let newRating = Math.max(100, row.rating + change);
+                                    db.run(`UPDATE users SET rating = ? WHERE id = ?`, [newRating, p.dbId], () => {
+                                        p.rating = newRating;
+                                        processedCount++;
+                                        if (processedCount === sortedPlayers.length) {
+                                            room.message = `🏆 試合終了！ 勝者: ${sortedPlayers[0].username} 🎉`;
+                                            io.to(roomId).emit('updateState', room);
+                                            broadcastLobbyData();
+                                        }
+                                    });
+                                }
                             });
                         });
                         return;
@@ -228,7 +339,7 @@ io.on('connection', (socket) => {
                     room.isReviewing = false;
                     initGame(room);
                     io.to(roomId).emit('updateState', room);
-                }, 10000);
+                }, 4000);
 
             } else {
                 socket.emit('notify', `計算結果が ${result} です（15ではありません）。`);
@@ -239,32 +350,41 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        if (waitingPlayer === socket) {
-            waitingPlayer = null;
-            broadcastLobbyData();
+        waitingQueue = waitingQueue.filter(s => s.id !== socket.id);
+        if (waitingQueue.length < 2 && matchTimer) {
+            clearTimeout(matchTimer);
+            matchTimer = null;
         }
+        broadcastLobbyData();
 
         for (const roomId in rooms) {
             const room = rooms[roomId];
             const playerIndex = room.players.findIndex(p => p.id === socket.id);
             if (playerIndex !== -1 && !room.isGameOver) {
-                room.isGameOver = true;
-                const winner = room.players[1 - playerIndex];
-                const loser = room.players[playerIndex];
+                const disconnectedPlayer = room.players[playerIndex];
 
-                updateRating(winner.dbId, true, (newR) => {
-                    winner.rating = newR;
-                    updateRating(loser.dbId, false, (newR2) => {
-                        loser.rating = newR2;
-                        room.message = `⚠️ 対戦相手が切断しました。『${winner.username}』の不戦勝です！`;
-                        io.to(roomId).emit('updateState', room);
-                        broadcastLobbyData();
-                    });
-                });
+                if (room.isSolo) {
+                    setTimeout(() => { delete rooms[roomId]; }, 5000);
+                    break;
+                }
 
-                setTimeout(() => {
-                    delete rooms[roomId];
-                }, 5000);
+                // 20秒間再接続を待つ
+                disconnectedPlayers[disconnectedPlayer.dbId] = {
+                    roomId,
+                    socketId: socket.id,
+                    timeout: setTimeout(() => {
+                        if (rooms[roomId] && !rooms[roomId].isGameOver) {
+                            rooms[roomId].isGameOver = true;
+                            rooms[roomId].message = `⚠️ 対戦相手 (${disconnectedPlayer.username}) が切断しました。タイムアウトで試合終了。`;
+                            io.to(roomId).emit('updateState', rooms[roomId]);
+                            setTimeout(() => { delete rooms[roomId]; }, 5000);
+                        }
+                        delete disconnectedPlayers[disconnectedPlayer.dbId];
+                    }, 20000)
+                };
+
+                room.message = `⚠️ ${disconnectedPlayer.username} が切断しました（20秒以内に再接続で復帰可能）`;
+                io.to(roomId).emit('updateState', room);
             }
         }
     });
