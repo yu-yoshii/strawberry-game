@@ -25,10 +25,12 @@ async function startServer() {
         console.log('MongoDB接続完了:', MONGO_URL);
         db = client.db(DB_NAME);
         usersCollection = db.collection('users');
-
-        server.listen(3000, () => {
-            console.log(`サーバー起動 (${VERSION}): http://localhost:3000`);
+        const PORT = process.env.PORT || 3000;
+        server.listen(PORT, () => {
+            console.log(`サーバー起動 (${VERSION}): ポート ${PORT}`);
         });
+
+        
     } catch (err) {
         console.error('MongoDB接続エラー:', err);
     }
