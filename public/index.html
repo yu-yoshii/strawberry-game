@@ -2,43 +2,55 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>いちご王国オンライン</title>
     <style>
-        body { font-family: sans-serif; text-align: center; background: #fff0f5; color: #333; margin-top: 20px; position: relative; overflow-x: hidden; }
-        .card { width: 55px; height: 80px; background: white; border: 2px solid #ff69b4; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold; cursor: pointer; margin: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .card:hover { background: #ffe4e1; }
-        .calc-btn { width: 50px; height: 50px; font-size: 20px; margin: 4px; background: #ff69b4; color: white; border: none; border-radius: 8px; cursor: pointer; }
-        .calc-btn:hover { background: #db0073; }
-        input, button.main-btn { padding: 10px; font-size: 16px; border-radius: 5px; margin: 5px; }
-        button.main-btn { background: #ff1493; color: white; border: none; cursor: pointer; }
-        button.main-btn:hover { background: #db0073; }
-        .screen { display: none; }
-        .screen.active { display: block; }
-        #message { font-size: 20px; color: #d81b60; font-weight: bold; margin: 15px; padding: 10px; background: #ffe4e1; border-radius: 8px; display: inline-block; }
-        .version-tag { position: fixed; bottom: 10px; right: 15px; font-size: 14px; color: #888; background: rgba(255,255,255,0.8); padding: 4px 8px; border-radius: 4px; }
-        #timer-box { font-size: 18px; color: #c71585; font-weight: bold; margin-top: 5px; }
-        #pass-status { font-size: 16px; color: #ff8c00; font-weight: bold; margin: 5px; }
+        * { box-sizing: border-box; }
+        body { font-family: sans-serif; text-align: center; background: #fff0f5; color: #333; margin: 0; padding: 10px; position: relative; overflow-x: hidden; }
+        
+        h1 { font-size: 1.8rem; margin: 10px 0; }
+        h3 { font-size: 1.2rem; }
 
-        .lobby-container { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-top: 15px; }
-        .lobby-box { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 320px; text-align: left; }
+        .card { width: 50px; height: 75px; background: white; border: 2px solid #ff69b4; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; cursor: pointer; margin: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); user-select: none; }
+        .card:hover { background: #ffe4e1; }
+        
+        .calc-btn { width: 45px; height: 45px; font-size: 18px; margin: 3px; background: #ff69b4; color: white; border: none; border-radius: 8px; cursor: pointer; user-select: none; }
+        .calc-btn:active { background: #db0073; }
+        
+        input, button.main-btn { padding: 10px; font-size: 16px; border-radius: 5px; margin: 5px; width: 100%; max-width: 320px; }
+        button.main-btn { background: #ff1493; color: white; border: none; cursor: pointer; font-weight: bold; }
+        button.main-btn:hover { background: #db0073; }
+
+        .screen { display: none; width: 100%; max-width: 600px; margin: 0 auto; }
+        .screen.active { display: block; }
+
+        #message { font-size: 1rem; color: #d81b60; font-weight: bold; margin: 10px 0; padding: 10px; background: #ffe4e1; border-radius: 8px; display: block; }
+        .version-tag { position: fixed; bottom: 5px; right: 10px; font-size: 12px; color: #888; background: rgba(255,255,255,0.8); padding: 4px 8px; border-radius: 4px; }
+        
+        #timer-box { font-size: 16px; color: #c71585; font-weight: bold; margin-top: 5px; }
+        #pass-status { font-size: 14px; color: #ff8c00; font-weight: bold; margin: 5px; }
+
+        .lobby-container { display: flex; flex-direction: column; gap: 15px; margin-top: 15px; align-items: center; }
+        .lobby-box { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 100%; max-width: 350px; text-align: left; }
         .lobby-box h3 { margin-top: 0; color: #d81b60; border-bottom: 2px solid #ffe4e1; padding-bottom: 5px; }
-        .ranking-list, .waiting-list { max-height: 180px; overflow-y: auto; font-size: 15px; }
+        .ranking-list, .room-list { max-height: 160px; overflow-y: auto; font-size: 14px; }
+        .room-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
 
         @keyframes celebration {
-            0% { transform: scale(0.5) rotate(-5deg); opacity: 0; }
-            50% { transform: scale(1.1) rotate(3deg); opacity: 1; }
-            100% { transform: scale(1) rotate(0deg); opacity: 1; }
+            0% { transform: translate(-50%, -50%) scale(0.5) rotate(-5deg); opacity: 0; }
+            50% { transform: translate(-50%, -50%) scale(1.1) rotate(3deg); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(1) rotate(0deg); opacity: 1; }
         }
         .victory-banner {
             display: none;
             position: fixed;
-            top: 30%;
+            top: 40%;
             left: 50%;
             transform: translate(-50%, -50%);
             background: linear-gradient(135deg, #ff1493, #ff69b4, #ffc0cb);
             color: white;
-            padding: 30px 50px;
-            font-size: 36px;
+            padding: 20px;
+            font-size: 1.5rem;
             font-weight: bold;
             border-radius: 20px;
             box-shadow: 0 10px 30px rgba(255, 20, 147, 0.5);
@@ -46,70 +58,90 @@
             animation: celebration 0.6s ease-out forwards;
             border: 4px solid white;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            width: 90%;
+            max-width: 400px;
+        }
+
+        @media (min-width: 768px) {
+            .lobby-container { flex-direction: row; justify-content: center; }
+            input, button.main-btn { width: auto; min-width: 200px; }
         }
     </style>
 </head>
 <body>
 
-    <div id="victory-banner" class="victory-banner">🍓 👑 BATTLE FINISHED! 👑 🍓<br><span id="victory-text" style="font-size: 22px;"></span></div>
+    <div id="victory-banner" class="victory-banner">🍓 👑 BATTLE FINISHED! 👑 🍓<br><span id="victory-text" style="font-size: 1.1rem;"></span></div>
 
     <!-- 1. ログイン・新規登録画面 -->
     <div id="screen-auth" class="screen active">
         <h1>🍓 いちご王国オンライン 🍓</h1>
-        <div style="background: white; display: inline-block; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+        <div style="background: white; display: inline-block; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 100%; max-width: 350px;">
             <h3>ログイン または 新規登録</h3>
             <input type="text" id="username" placeholder="ユーザー名"><br>
             <input type="password" id="password" placeholder="パスワード"><br><br>
             <button class="main-btn" onclick="auth('login')">ログイン</button>
             <button class="main-btn" onclick="auth('register')">新規登録</button>
-            <p id="auth-msg" style="color: red;"></p>
+            <p id="auth-msg" style="color: red; font-size: 14px;"></p>
         </div>
     </div>
 
     <!-- 2. ロビー画面 -->
     <div id="screen-lobby" class="screen">
         <h1>🍓 ロビー 🍓</h1>
-        <div style="background: white; display: inline-block; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 850px;">
+        <div style="background: white; display: inline-block; padding: 15px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 100%;">
             <h3 id="welcome-msg" style="margin-bottom: 5px;"></h3>
-            <p style="color: #666; font-size: 14px;">ルール：場の5枚のカードをすべて使って「15」を早く作れ！（2〜4人対戦・3本先取で勝利）</p>
-            <button class="main-btn" onclick="startMatching()" style="font-size: 18px; padding: 12px 30px;">マッチング開始（2〜4人）</button>
+            <p style="color: #666; font-size: 13px;">ルール：場の5枚のカードをすべて使って「15」を早く作れ！（3本先取）</p>
+            
+            <button class="main-btn" onclick="createRoom()" style="font-size: 16px; background: #28a745; width: 100%; max-width: 300px;">🏠 新しい部屋を作る</button>
             
             <div class="lobby-container">
+                <div class="lobby-box">
+                    <h3>🏰 部屋一覧（参加）</h3>
+                    <div id="room-list" class="room-list">部屋はありません</div>
+                </div>
                 <div class="lobby-box">
                     <h3>👑 王国ランキング</h3>
                     <div id="ranking-list" class="ranking-list">読み込み中...</div>
                 </div>
-                <div class="lobby-box">
-                    <h3>🔍 マッチング募集中</h3>
-                    <div id="waiting-list" class="waiting-list">誰もいません</div>
-                </div>
             </div>
 
             <br>
-            <button onclick="logout()" style="background: none; border: none; color: #888; cursor: pointer; text-decoration: underline;">ログアウト</button>
+            <button onclick="logout()" style="background: none; border: none; color: #888; cursor: pointer; text-decoration: underline; font-size: 14px;">ログアウト</button>
         </div>
     </div>
 
-    <!-- 3. マッチング待機画面 -->
-    <div id="screen-waiting" class="screen">
-        <h1>マッチメイキング</h1>
-        <p id="waiting-text" style="font-size: 18px; color: #555;">対戦相手を探しています (2〜4人)...</p>
-        <button class="main-btn" onclick="cancelMatching()" style="background: #777;">キャンセル</button>
+    <!-- 3. ルーム待機・メンバー集め画面 -->
+    <div id="screen-room" class="screen">
+        <h1>🍓 ルーム待機中 🍓</h1>
+        <div style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+            <p id="room-host-msg" style="font-weight: bold; color: #d81b60;"></p>
+            <h3>参加メンバー</h3>
+            <div id="room-members-list" style="font-size: 16px; margin-bottom: 15px; text-align: left; display: inline-block;"></div>
+            <br>
+            <div id="host-controls" style="display: none;">
+                <button class="main-btn" onclick="startTheGame()" style="background: #28a745; font-size: 18px;">ゲーム開始！</button>
+                <p style="font-size: 12px; color: #666;">※メンバーが集まったらホストが押してスタートできます</p>
+            </div>
+            <div id="guest-controls">
+                <p style="color: #666; font-size: 14px;">ホストがゲームを開始するのを待っています...</p>
+            </div>
+            <button class="main-btn" onclick="leaveRoom()" style="background: #777;">部屋を出る</button>
+        </div>
     </div>
 
     <!-- 4. ゲーム画面 -->
     <div id="screen-game" class="screen">
-        <h2 id="room-info">ラウンド 1</h2>
+        <h2 id="room-info" style="font-size: 1.3rem;">ラウンド 1</h2>
         <div id="message">読み込み中...</div>
         <div id="timer-box"></div>
         <div id="pass-status"></div>
         
-        <h3>場のカード（クリックすると式に入力されます）</h3>
+        <h3 style="font-size: 1rem;">場のカード（タップで式に入力）</h3>
         <div id="field-cards"></div>
 
-        <div>
-            <input type="text" id="expression" style="width: 350px; text-align: center; font-size: 22px;" placeholder="例: (1+2)*(3+4)-5"><br>
-            <div>
+        <div style="margin-top: 10px;">
+            <input type="text" id="expression" style="width: 100%; max-width: 350px; text-align: center; font-size: 20px;" placeholder="例: (1+2)*(3+4)-5"><br>
+            <div style="margin: 8px 0;">
                 <button class="calc-btn" onclick="appendExpr('+')">+</button>
                 <button class="calc-btn" onclick="appendExpr('-')">-</button>
                 <button class="calc-btn" onclick="appendExpr('*')">×</button>
@@ -119,18 +151,17 @@
                 <button class="calc-btn" onclick="backspaceExpr()" style="background:#888;" title="1文字消す">←</button>
                 <button class="calc-btn" onclick="clearExpr()" style="background:#555;">クリア</button>
             </div>
+            <button id="submit-btn" class="main-btn" onclick="sendCalc()" style="font-size: 16px; background: #28a745; width: 100%; max-width: 320px;">「15」で早押し解答！</button>
+            <button id="pass-btn" class="main-btn" onclick="togglePass()" style="font-size: 14px; background: #ff8c00; width: 100%; max-width: 320px;">パスを希望する</button>
             <br>
-            <button id="submit-btn" class="main-btn" onclick="sendCalc()" style="font-size: 18px; padding: 12px 40px; background: #28a745;">「15」で早押し解答！</button>
-            <button id="pass-btn" class="main-btn" onclick="togglePass()" style="font-size: 16px; padding: 12px 20px; background: #ff8c00;">パスを希望する</button>
-            <br><br>
-            <button id="back-lobby-btn" class="main-btn" onclick="returnToLobby()" style="background: #666; display: none;">ロビーに戻る</button>
+            <button id="back-lobby-btn" class="main-btn" onclick="returnToLobby()" style="background: #666; display: none; width: 100%; max-width: 320px;">ロビーに戻る</button>
         </div>
 
-        <h3>対戦状況</h3>
-        <div id="status" style="font-size: 16px;"></div>
+        <h3 style="font-size: 1rem; margin-top: 15px;">対戦状況</h3>
+        <div id="status" style="font-size: 14px;"></div>
     </div>
 
-    <div id="version-display" class="version-tag">v1.7.0</div>
+    <div id="version-display" class="version-tag">v1.8.0</div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
@@ -205,24 +236,39 @@
             document.getElementById('welcome-msg').innerHTML = `ようこそ、${currentUser.username} さん！ <span style="color:#d81b60; font-weight:bold;">(レート: ${currentUser.rating})</span>`;
         }
 
-        function startMatching() {
+        function createRoom() {
             if (!currentUser) return;
             isPassRequested = false;
-            showScreen('screen-waiting');
-            socket.emit('startMatchmaking', currentUser.id);
+            socket.emit('createRoom', { userId: currentUser.id });
         }
 
-        function cancelMatching() {
-            socket.emit('cancelMatchmaking');
-            showScreen('screen-lobby');
+        function joinRoom(roomId) {
+            if (!currentUser) return;
+            isPassRequested = false;
+            socket.emit('joinRoom', { roomId, userId: currentUser.id });
+        }
+
+        function startTheGame() {
+            if (!currentGameRoom) return;
+            socket.emit('startGame', { roomId: currentGameRoom });
+        }
+
+        function leaveRoom() {
             socket.emit('requestLobbyData');
+            currentGameRoom = null;
+            showScreen('screen-lobby');
+            window.location.reload(); // 簡単なリロードで状態リセット
         }
 
         function returnToLobby() {
             document.getElementById('victory-banner').style.display = 'none';
-            showScreen('screen-lobby');
-            socket.emit('requestLobbyData');
+            leaveRoom();
         }
+
+        socket.on('joinedRoom', (room) => {
+            currentGameRoom = room.roomId;
+            updateRoomView(room);
+        });
 
         socket.on('lobbyData', (data) => {
             let rankHtml = '<table width="100%">';
@@ -233,41 +279,53 @@
             rankHtml += '</table>';
             document.getElementById('ranking-list').innerHTML = rankHtml;
 
-            if (data.waitingPlayers.length === 0) {
-                document.getElementById('waiting-list').innerHTML = '<span style="color:#888;">誰もいません</span>';
+            if (data.roomList.length === 0) {
+                document.getElementById('room-list').innerHTML = '<span style="color:#888;">作成された部屋はありません</span>';
             } else {
-                let waitHtml = '<ul style="padding-left: 20px; margin: 0;">';
-                data.waitingPlayers.forEach(name => {
-                    waitHtml += `<li>${name} さん</li>`;
+                let roomHtml = '';
+                data.roomList.forEach(r => {
+                    roomHtml += `<div class="room-item"><span><b>${r.host}</b>の部屋 (${r.playerCount}人)</span>`;
+                    if (r.status === '募集中') {
+                        roomHtml += `<button class="main-btn" style="padding: 4px 10px; font-size: 12px; width: auto;" onclick="joinRoom('${r.roomId}')">参加</button>`;
+                    } else {
+                        roomHtml += `<span style="color: red; font-size: 12px;">対戦中</span>`;
+                    }
+                    roomHtml += `</div>`;
                 });
-                waitHtml += '</ul>';
-                document.getElementById('waiting-list').innerHTML = waitHtml;
+                document.getElementById('room-list').innerHTML = roomHtml;
             }
         });
 
-        function togglePass() {
-            isPassRequested = !isPassRequested;
-            const btn = document.getElementById('pass-btn');
-            if (isPassRequested) {
-                btn.innerText = 'パスを解除する';
-                btn.style.background = '#6c757d';
+        function updateRoomView(room) {
+            if (room.isGameStarted) {
+                showScreen('screen-game');
+                renderGameState(room);
             } else {
-                btn.innerText = 'パスを希望する';
-                btn.style.background = '#ff8c00';
+                showScreen('screen-room');
+                document.getElementById('room-host-msg').innerText = `ホスト: ${room.hostName} の部屋`;
+                
+                let memberHtml = '<ul style="padding-left: 20px; margin: 0;">';
+                room.players.forEach(p => {
+                    memberHtml += `<li>${p.username} (レート: ${p.rating})</li>`;
+                });
+                memberHtml += '</ul>';
+                document.getElementById('room-members-list').innerHTML = memberHtml;
+
+                if (room.hostId === socket.id) {
+                    document.getElementById('host-controls').style.display = 'block';
+                    document.getElementById('guest-controls').style.display = 'none';
+                } else {
+                    document.getElementById('host-controls').style.display = 'none';
+                    document.getElementById('guest-controls').style.display = 'block';
+                }
             }
-            socket.emit('requestPass', { roomId: currentGameRoom, pass: isPassRequested });
         }
 
-        socket.on('waiting', (msg) => {
-            document.getElementById('waiting-text').innerText = msg;
-        });
-
-        socket.on('notify', (msg) => {
-            alert(msg);
-        });
-
         socket.on('updateState', (state) => {
-            showScreen('screen-game');
+            updateRoomView(state);
+        });
+
+        function renderGameState(state) {
             currentGameRoom = state.roomId;
             document.getElementById('version-display').innerText = state.version;
 
@@ -318,7 +376,7 @@
             }
 
             if (state.isGameOver) {
-                document.getElementById('back-lobby-btn').style.display = 'inline-block';
+                document.getElementById('back-lobby-btn').style.display = 'block';
                 const sorted = [...state.players].sort((a, b) => b.score - a.score);
                 const winner = sorted[0];
                 
@@ -357,6 +415,23 @@
                 statusHtml += `獲得ポイント: 🏆 ${p.score} / 3勝<br><br>`;
             });
             document.getElementById('status').innerHTML = statusHtml;
+        }
+
+        function togglePass() {
+            isPassRequested = !isPassRequested;
+            const btn = document.getElementById('pass-btn');
+            if (isPassRequested) {
+                btn.innerText = 'パスを解除する';
+                btn.style.background = '#6c757d';
+            } else {
+                btn.innerText = 'パスを希望する';
+                btn.style.background = '#ff8c00';
+            }
+            socket.emit('requestPass', { roomId: currentGameRoom, pass: isPassRequested });
+        }
+
+        socket.on('notify', (msg) => {
+            alert(msg);
         });
 
         function appendExpr(val) {

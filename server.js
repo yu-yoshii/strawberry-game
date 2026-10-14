@@ -11,7 +11,7 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-const VERSION = "v1.7.0";
+const VERSION = "v1.8.0";
 
 const dbPath = path.resolve(__dirname, 'users.db');
 const db = new sqlite3.Database(dbPath, (err) => {
@@ -43,7 +43,6 @@ app.post('/api/login', (req, res) => {
     });
 });
 
-// 安全な数式評価パーサー (RCE脆弱性対策)
 function evaluateExpression(expr) {
     let pos = 0;
     function parseNumber() {
@@ -123,64 +122,26 @@ function evaluateExpression(expr) {
     return val;
 }
 
-function broadcastLobbyData() {
-    db.all(`SELECT username, rating FROM users ORDER BY rating DESC LIMIT 10`, [], (err, rows) => {
-        if (err) return;
-        const ranking = rows || [];
-        const waitingPlayers = waitingQueue.map(s => s.user.username);
-        io.emit('lobbyData', { ranking, waitingPlayers });
+let rooms = {}; // ルーム管理 { roomId: roomState }
+
+function getLobbyInfo() {
+    return new Promise((resolve) => {
+        db.all(`SELECT username, rating FROM users ORDER BY rating DESC LIMIT 10`, [], (err, rows) => {
+            const ranking = rows || [];
+            const roomList = Object.keys(rooms).map(roomId => ({
+                roomId,
+                host: rooms[roomId].hostName,
+                playerCount: rooms[roomId].players.length,
+                status: rooms[roomId].isGameStarted ? '対戦中' : '募集中'
+            }));
+            resolve({ ranking, roomList });
+        });
     });
 }
 
-let waitingQueue = [];
-let matchTimer = null;
-let rooms = {};
-
-function checkAndStartMatch() {
-    if (waitingQueue.length >= 4) {
-        if (matchTimer) { clearTimeout(matchTimer); matchTimer = null; }
-        startRoom(waitingQueue.splice(0, 4));
-    } else if (waitingQueue.length >= 2 && !matchTimer) {
-        // 2人以上揃ったら3秒待ってその時点の人数（最大4人）でマッチ開始
-        matchTimer = setTimeout(() => {
-            if (waitingQueue.length >= 2) {
-                const count = Math.min(waitingQueue.length, 4);
-                startRoom(waitingQueue.splice(0, count));
-            }
-            matchTimer = null;
-        }, 3000);
-    }
-}
-
-function startRoom(sockets) {
-    const roomId = 'room_' + Date.now();
-    const players = sockets.map(s => ({
-        id: s.id,
-        dbId: s.user.id,
-        username: s.user.username,
-        rating: s.user.rating,
-        score: 0,
-        passRequested: false
-    }));
-
-    sockets.forEach(s => s.join(roomId));
-
-    const gameState = {
-        roomId,
-        version: VERSION,
-        players,
-        deck: [],
-        fieldCards: [],
-        currentRound: 1,
-        isReviewing: false,
-        isGameOver: false,
-        message: `${players.length}人対戦開始！ 5枚すべて使って「15」を作れ！（3本先取）`
-    };
-
-    initGame(gameState);
-    rooms[roomId] = gameState;
-    io.to(roomId).emit('updateState', gameState);
-    broadcastLobbyData();
+async function broadcastLobbyData() {
+    const data = await getLobbyInfo();
+    io.emit('lobbyData', data);
 }
 
 io.on('connection', (socket) => {
@@ -197,44 +158,102 @@ io.on('connection', (socket) => {
         });
     });
 
-    socket.on('requestLobbyData', () => {
-        broadcastLobbyData();
+    socket.on('requestLobbyData', async () => {
+        const data = await getLobbyInfo();
+        socket.emit('lobbyData', data);
     });
 
-    socket.on('startMatchmaking', (userId) => {
+    // 部屋を作成する
+    socket.on('createRoom', ({ userId }) => {
         db.get(`SELECT id, username, rating FROM users WHERE id = ?`, [userId], (err, row) => {
             if (err || !row) return;
             socket.user = row;
 
-            // 既にキューにいなければ追加
-            if (!waitingQueue.some(s => s.id === socket.id)) {
-                waitingQueue.push(socket);
-                socket.emit('waiting', '対戦相手を待っています...');
-                broadcastLobbyData();
-                checkAndStartMatch();
-            }
+            const roomId = 'room_' + Date.now();
+            rooms[roomId] = {
+                roomId,
+                version: VERSION,
+                hostId: socket.id,
+                hostName: row.username,
+                isGameStarted: false,
+                players: [{
+                    id: socket.id,
+                    dbId: row.id,
+                    username: row.username,
+                    rating: row.rating,
+                    score: 0,
+                    passRequested: false
+                }],
+                deck: [],
+                fieldCards: [],
+                currentRound: 1,
+                isReviewing: false,
+                isGameOver: false,
+                message: `${row.username} が部屋を作成しました。メンバーを待っています...`
+            };
+
+            socket.join(roomId);
+            socket.emit('joinedRoom', rooms[roomId]);
+            broadcastLobbyData();
         });
     });
 
-    socket.on('cancelMatchmaking', () => {
-        waitingQueue = waitingQueue.filter(s => s.id !== socket.id);
-        if (waitingQueue.length < 2 && matchTimer) {
-            clearTimeout(matchTimer);
-            matchTimer = null;
+    // 部屋に参加する
+    socket.on('joinRoom', ({ roomId, userId }) => {
+        const room = rooms[roomId];
+        if (!room || room.isGameStarted || room.players.length >= 4) {
+            socket.emit('notify', 'この部屋には参加できません。');
+            return;
         }
+
+        db.get(`SELECT id, username, rating FROM users WHERE id = ?`, [userId], (err, row) => {
+            if (err || !row) return;
+            socket.user = row;
+
+            if (room.players.some(p => p.dbId === row.id)) {
+                socket.emit('joinedRoom', room);
+                return;
+            }
+
+            room.players.push({
+                id: socket.id,
+                dbId: row.id,
+                username: row.username,
+                rating: row.rating,
+                score: 0,
+                passRequested: false
+            });
+
+            socket.join(roomId);
+            io.to(roomId).emit('updateState', room);
+            broadcastLobbyData();
+        });
+    });
+
+    // ホストがゲームを開始する
+    socket.on('startGame', ({ roomId }) => {
+        const room = rooms[roomId];
+        if (!room || room.hostId !== socket.id || room.isGameStarted) return;
+        if (room.players.length < 1) { // 1人でもテストできるようにするか、2人以上に制限するか
+            socket.emit('notify', 'プレイヤーが足りません。');
+            return;
+        }
+
+        room.isGameStarted = true;
+        room.message = `${room.players.length}人対戦開始！ 5枚すべて使って「15」を作れ！（3本先取）`;
+        initGame(room);
+        io.to(roomId).emit('updateState', room);
         broadcastLobbyData();
     });
 
     socket.on('requestPass', ({ roomId, pass }) => {
         const room = rooms[roomId];
-        if (!room || room.isReviewing || room.isGameOver) return;
+        if (!room || !room.isGameStarted || room.isReviewing || room.isGameOver) return;
 
         const player = room.players.find(p => p.id === socket.id);
         if (!player) return;
 
         player.passRequested = pass;
-
-        // 過半数がパスを希望したか判定
         const passCount = room.players.filter(p => p.passRequested).length;
         const requiredPass = Math.floor(room.players.length / 2) + 1;
 
@@ -251,7 +270,7 @@ io.on('connection', (socket) => {
 
     socket.on('tryCalc', ({ roomId, expression }) => {
         const room = rooms[roomId];
-        if (!room || room.isReviewing || room.isGameOver) return;
+        if (!room || !room.isGameStarted || room.isReviewing || room.isGameOver) return;
 
         const player = room.players.find(p => p.id === socket.id);
         if (!player) return;
@@ -292,13 +311,10 @@ io.on('connection', (socket) => {
 
                     if (player.score >= 3) {
                         room.isGameOver = true;
-                        
-                        // 順位付け (スコアの高い順)
                         const sortedPlayers = [...room.players].sort((a, b) => b.score - a.score);
-                        
                         let processedCount = 0;
+
                         sortedPlayers.forEach((p, index) => {
-                            // 順位に応じたレート変動 (1位: +24, 最下位: -12〜-16 等)
                             let change = 0;
                             if (index === 0) change = 24;
                             else if (index === 1) change = room.players.length === 2 ? -12 : 4;
@@ -340,24 +356,34 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        waitingQueue = waitingQueue.filter(s => s.id !== socket.id);
-        if (waitingQueue.length < 2 && matchTimer) {
-            clearTimeout(matchTimer);
-            matchTimer = null;
-        }
-        broadcastLobbyData();
-
         for (const roomId in rooms) {
             const room = rooms[roomId];
             const playerIndex = room.players.findIndex(p => p.id === socket.id);
-            if (playerIndex !== -1 && !room.isGameOver) {
-                room.isGameOver = true;
-                const disconnectedPlayer = room.players[playerIndex];
-                room.message = `⚠️ 対戦相手 (${disconnectedPlayer.username}) が切断しました。試合終了。`;
-                io.to(roomId).emit('updateState', room);
-                setTimeout(() => { delete rooms[roomId]; }, 5000);
+            if (playerIndex !== -1) {
+                if (!room.isGameStarted) {
+                    // ゲーム開始前ならルームから除外
+                    room.players.splice(playerIndex, 1);
+                    if (room.players.length === 0) {
+                        delete rooms[roomId];
+                    } else {
+                        // ホストがいなくなったら新しい人をホストに
+                        if (room.hostId === socket.id) {
+                            room.hostId = room.players[0].id;
+                            room.hostName = room.players[0].username;
+                        }
+                        io.to(roomId).emit('updateState', room);
+                    }
+                } else if (!room.isGameOver) {
+                    // ゲーム中なら切断負け扱い
+                    room.isGameOver = true;
+                    const disconnectedPlayer = room.players[playerIndex];
+                    room.message = `⚠️ 対戦相手 (${disconnectedPlayer.username}) が切断しました。試合終了。`;
+                    io.to(roomId).emit('updateState', room);
+                    setTimeout(() => { delete rooms[roomId]; }, 5000);
+                }
             }
         }
+        broadcastLobbyData();
     });
 });
 
