@@ -19,6 +19,12 @@
         #timer-box { font-size: 18px; color: #c71585; font-weight: bold; margin-top: 5px; }
         #pass-status { font-size: 16px; color: #ff8c00; font-weight: bold; margin: 5px; }
 
+        /* ロビー用レイアウト調整 */
+        .lobby-container { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-top: 15px; }
+        .lobby-box { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 320px; text-align: left; }
+        .lobby-box h3 { margin-top: 0; color: #d81b60; border-bottom: 2px solid #ffe4e1; padding-bottom: 5px; }
+        .ranking-list, .waiting-list { max-height: 180px; overflow-y: auto; font-size: 15px; }
+
         @keyframes celebration {
             0% { transform: scale(0.5) rotate(-5deg); opacity: 0; }
             50% { transform: scale(1.1) rotate(3deg); opacity: 1; }
@@ -64,11 +70,25 @@
     <!-- 2. ロビー画面 -->
     <div id="screen-lobby" class="screen">
         <h1>🍓 ロビー 🍓</h1>
-        <div style="background: white; display: inline-block; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
-            <h3 id="welcome-msg"></h3>
-            <p>ルール：場の5枚のカードを<strong>すべて使って</strong>「15」を早く作れ！（3本先取で勝利・勝利でレートUP↑）</p>
-            <button class="main-btn" onclick="startMatching()" style="font-size: 18px; padding: 12px 25px;">マッチング開始</button>
-            <br><br>
+        <div style="background: white; display: inline-block; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 850px;">
+            <h3 id="welcome-msg" style="margin-bottom: 5px;"></h3>
+            <p style="color: #666; font-size: 14px;">ルール：場の5枚のカードをすべて使って「15」を早く作れ！（3本先取で勝利・勝利でレートUP↑）</p>
+            <button class="main-btn" onclick="startMatching()" style="font-size: 18px; padding: 12px 30px;">マッチング開始</button>
+            
+            <div class="lobby-container">
+                <!-- レートランキング -->
+                <div class="lobby-box">
+                    <h3>👑 王国ランキング</h3>
+                    <div id="ranking-list" class="ranking-list">読み込み中...</div>
+                </div>
+                <!-- 募集中のプレイヤー -->
+                <div class="lobby-box">
+                    <h3>🔍 マッチング募集中</h3>
+                    <div id="waiting-list" class="waiting-list">誰もいません</div>
+                </div>
+            </div>
+
+            <br>
             <button onclick="logout()" style="background: none; border: none; color: #888; cursor: pointer; text-decoration: underline;">ログアウト</button>
         </div>
     </div>
@@ -113,7 +133,7 @@
         <div id="status" style="font-size: 18px;"></div>
     </div>
 
-    <div id="version-display" class="version-tag">v1.5.0</div>
+    <div id="version-display" class="version-tag">v1.6.0</div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
@@ -131,6 +151,7 @@
                         currentUser = res.user;
                         updateWelcomeMsg();
                         showScreen('screen-lobby');
+                        socket.emit('requestLobbyData'); // ロビー情報を要求
                     } else {
                         localStorage.removeItem('strawberry_user_id');
                     }
@@ -145,6 +166,7 @@
                     if (res && res.success) {
                         currentUser = res.user;
                         updateWelcomeMsg();
+                        socket.emit('requestLobbyData');
                     }
                 });
             }
@@ -169,6 +191,7 @@
                 localStorage.setItem('strawberry_user_id', currentUser.id);
                 updateWelcomeMsg();
                 showScreen('screen-lobby');
+                socket.emit('requestLobbyData');
             } else {
                 document.getElementById('auth-msg').innerText = data.message;
             }
@@ -182,7 +205,7 @@
 
         function updateWelcomeMsg() {
             if (!currentUser) return;
-            document.getElementById('welcome-msg').innerHTML = `ようこそ、${currentUser.username} さん！<br><span style="color:#d81b60; font-weight:bold;">現在のレート: ${currentUser.rating}</span>`;
+            document.getElementById('welcome-msg').innerHTML = `ようこそ、${currentUser.username} さん！ <span style="color:#d81b60; font-weight:bold;">(レート: ${currentUser.rating})</span>`;
         }
 
         function startMatching() {
@@ -195,12 +218,38 @@
         function cancelMatching() {
             socket.emit('cancelMatchmaking');
             showScreen('screen-lobby');
+            socket.emit('requestLobbyData');
         }
 
         function returnToLobby() {
             document.getElementById('victory-banner').style.display = 'none';
             showScreen('screen-lobby');
+            socket.emit('requestLobbyData');
         }
+
+        // ロビー情報（ランキング＆マッチング待ちプレイヤー）の受信処理
+        socket.on('lobbyData', (data) => {
+            // ランキング描画
+            let rankHtml = '<table width="100%">';
+            data.ranking.forEach((u, index) => {
+                const crown = index === 0 ? '👑 ' : index === 1 ? '🥈 ' : index === 2 ? '🥉 ' : `${index + 1}. `;
+                rankHtml += `<tr><td>${crown}${u.username}</td><td align="right" style="color:#d81b60; font-weight:bold;">${u.rating}</td></tr>`;
+            });
+            rankHtml += '</table>';
+            document.getElementById('ranking-list').innerHTML = rankHtml;
+
+            // 募集中プレイヤー描画
+            if (data.waitingPlayers.length === 0) {
+                document.getElementById('waiting-list').innerHTML = '<span style="color:#888;">現在いません</span>';
+            } else {
+                let waitHtml = '<ul style="padding-left: 20px; margin: 0;">';
+                data.waitingPlayers.forEach(name => {
+                    waitHtml += `<li>${name} さん</li>`;
+                });
+                waitHtml += '</ul>';
+                document.getElementById('waiting-list').innerHTML = waitHtml;
+            }
+        });
 
         function togglePass() {
             isPassRequested = !isPassRequested;
@@ -229,8 +278,6 @@
             document.getElementById('version-display').innerText = state.version;
 
             document.getElementById('message').innerText = state.message;
-            
-            // ラウンド数を表示
             document.getElementById('room-info').innerText = `ラウンド ${state.currentRound}`;
 
             const meInState = state.players.find(p => p.dbId === currentUser?.id);

@@ -11,7 +11,7 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-const VERSION = "v1.5.0";
+const VERSION = "v1.6.0";
 
 const dbPath = path.resolve(__dirname, 'users.db');
 const db = new sqlite3.Database(dbPath, (err) => {
@@ -56,6 +56,22 @@ function updateRating(userId, isWinner, callback) {
     });
 }
 
+// ロビー情報を全員にブロードキャストする関数
+function broadcastLobbyData() {
+    db.all(`SELECT username, rating FROM users ORDER BY rating DESC LIMIT 10`, [], (err, rows) => {
+        if (err) return;
+        const ranking = rows || [];
+        
+        // 待機中のプレイヤー名リストを作成
+        const waitingPlayers = [];
+        if (waitingPlayer && waitingPlayer.user) {
+            waitingPlayers.push(waitingPlayer.user.username);
+        }
+
+        io.emit('lobbyData', { ranking, waitingPlayers });
+    });
+}
+
 let waitingPlayer = null;
 let rooms = {};
 
@@ -67,14 +83,21 @@ io.on('connection', (socket) => {
             if (err || !row) {
                 callback({ success: false });
             } else {
+                socket.user = row;
                 callback({ success: true, user: row });
             }
         });
     });
 
+    // ロビー画面を開いたときに最新情報を要求された場合
+    socket.on('requestLobbyData', () => {
+        broadcastLobbyData();
+    });
+
     socket.on('startMatchmaking', (userId) => {
         db.get(`SELECT id, username, rating FROM users WHERE id = ?`, [userId], (err, row) => {
             if (err || !row) return;
+            socket.user = row;
 
             if (waitingPlayer && waitingPlayer.id !== socket.id) {
                 const roomId = 'room_' + Date.now();
@@ -89,7 +112,7 @@ io.on('connection', (socket) => {
                     roomId,
                     version: VERSION,
                     players: [
-                        { id: p1.id, dbId: p1.dbId, username: 'Player1', rating: 1000, score: 0, passRequested: false },
+                        { id: p1.id, dbId: p1.user.id, username: p1.user.username, rating: p1.user.rating, score: 0, passRequested: false },
                         { id: p2.id, dbId: row.id, username: row.username, rating: row.rating, score: 0, passRequested: false }
                     ],
                     deck: [],
@@ -100,27 +123,23 @@ io.on('connection', (socket) => {
                     message: '3本先取バトル開始！ 5枚すべて使って「15」を作れ！'
                 };
 
-                db.get(`SELECT id, username, rating FROM users WHERE id = ?`, [p1.dbId], (err, p1Row) => {
-                    if (p1Row) {
-                        gameState.players[0].dbId = p1Row.id;
-                        gameState.players[0].username = p1Row.username;
-                        gameState.players[0].rating = p1Row.rating;
-                    }
-                    initGame(gameState);
-                    rooms[roomId] = gameState;
-                    io.to(roomId).emit('updateState', gameState);
-                });
-
+                initGame(gameState);
+                rooms[roomId] = gameState;
+                io.to(roomId).emit('updateState', gameState);
+                broadcastLobbyData(); // 待機者が減ったのでロビーを更新
             } else {
-                socket.dbId = row.id;
                 waitingPlayer = socket;
                 socket.emit('waiting', '対戦相手を待っています...');
+                broadcastLobbyData(); // 待機者が増えたのでロビーを更新
             }
         });
     });
 
     socket.on('cancelMatchmaking', () => {
-        if (waitingPlayer === socket) waitingPlayer = null;
+        if (waitingPlayer === socket) {
+            waitingPlayer = null;
+            broadcastLobbyData(); // 待機解除されたのでロビーを更新
+        }
     });
 
     socket.on('requestPass', ({ roomId, pass }) => {
@@ -186,7 +205,6 @@ io.on('connection', (socket) => {
                 setTimeout(() => {
                     if (!rooms[roomId]) return;
 
-                    // 3ポイント先取でゲーム終了
                     if (player.score >= 3) {
                         room.isGameOver = true;
                         const winner = player;
@@ -198,11 +216,11 @@ io.on('connection', (socket) => {
                                 loser.rating = newR2;
                                 room.message = `🏆 試合終了！ 勝者: ${winner.username} 🎉`;
                                 io.to(roomId).emit('updateState', room);
+                                broadcastLobbyData(); // 試合が終わってレートが変動したためランキングを更新
                             });
                         });
                         return;
                     } else {
-                        // 次のラウンドへ
                         room.currentRound++;
                         room.message = `ラウンド勝利: ${player.username}！次の問題へ...`;
                     }
@@ -221,7 +239,10 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        if (waitingPlayer === socket) waitingPlayer = null;
+        if (waitingPlayer === socket) {
+            waitingPlayer = null;
+            broadcastLobbyData();
+        }
 
         for (const roomId in rooms) {
             const room = rooms[roomId];
@@ -237,6 +258,7 @@ io.on('connection', (socket) => {
                         loser.rating = newR2;
                         room.message = `⚠️ 対戦相手が切断しました。『${winner.username}』の不戦勝です！`;
                         io.to(roomId).emit('updateState', room);
+                        broadcastLobbyData();
                     });
                 });
 
