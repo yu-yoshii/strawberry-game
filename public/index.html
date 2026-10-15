@@ -62,6 +62,26 @@
             max-width: 400px;
         }
 
+        .correct-banner {
+            display: none;
+            position: fixed;
+            top: 25%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, #28a745, #20c997);
+            color: white;
+            padding: 15px 20px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-radius: 15px;
+            box-shadow: 0 8px 25px rgba(40, 167, 69, 0.4);
+            z-index: 998;
+            animation: celebration 0.4s ease-out forwards;
+            border: 3px solid white;
+            width: 90%;
+            max-width: 380px;
+        }
+
         @media (min-width: 768px) {
             .lobby-container { flex-direction: row; justify-content: center; }
             input, button.main-btn { width: auto; min-width: 200px; }
@@ -71,6 +91,7 @@
 <body>
 
     <div id="victory-banner" class="victory-banner">🍓 👑 BATTLE FINISHED! 👑 🍓<br><span id="victory-text" style="font-size: 1.1rem;"></span></div>
+    <div id="correct-banner" class="correct-banner">🎉 <span id="correct-user-name"></span> が正解！ 🎉<br><span id="correct-expr-text" style="font-size: 0.95rem;"></span></div>
 
     <!-- 1. ログイン・新規登録画面 -->
     <div id="screen-auth" class="screen active">
@@ -136,11 +157,18 @@
         <div id="timer-box"></div>
         <div id="pass-status"></div>
         
+        <!-- 15秒猶予中のポップアップ提案コントロール -->
+        <div id="grace-controls" style="display: none; margin: 10px auto; padding: 10px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 8px; max-width: 350px;">
+            <p style="margin: 0 0 8px 0; font-size: 14px; color: #856404; font-weight: bold;">他のプレイヤーからパス提案されました（15秒猶予中）</p>
+            <button class="main-btn" onclick="acceptPass()" style="background: #ffc107; color: #000; font-size: 13px; width: 45%; padding: 6px 5px; margin: 2px;">承諾（すぐ次へ）</button>
+            <button class="main-btn" onclick="rejectPass()" style="background: #6c757d; color: #fff; font-size: 13px; width: 45%; padding: 6px 5px; margin: 2px;">承諾しない（入力）</button>
+        </div>
+
         <h3 style="font-size: 1rem;">場のカード（タップで式に入力）</h3>
         <div id="field-cards"></div>
 
         <div style="margin-top: 10px;">
-            <input type="text" id="expression" style="width: 100%; max-width: 350px; text-align: center; font-size: 20px;" placeholder="例: (1+2)*(3+4)-5"><br>
+            <input type="text" id="expression" oninput="onExpressionInput()" style="width: 100%; max-width: 350px; text-align: center; font-size: 20px;" placeholder="例: (1+2)*(3+4)-5"><br>
             <div style="margin: 8px 0;">
                 <button class="calc-btn" onclick="appendExpr('+')">+</button>
                 <button class="calc-btn" onclick="appendExpr('-')">-</button>
@@ -152,7 +180,8 @@
                 <button class="calc-btn" onclick="clearExpr()" style="background:#555;">クリア</button>
             </div>
             <button id="submit-btn" class="main-btn" onclick="sendCalc()" style="font-size: 16px; background: #28a745; width: 100%; max-width: 320px;">「15」で早押し解答！</button>
-            <button id="pass-btn" class="main-btn" onclick="togglePass()" style="font-size: 14px; background: #ff8c00; width: 100%; max-width: 320px;">パスを希望する</button>
+            <!-- パスボタンは常に表示（スタイルはブロック表示） -->
+            <button id="pass-btn" class="main-btn" onclick="togglePass()" style="font-size: 14px; background: #ff8c00; width: 100%; max-width: 320px; display: block;">パスを希望する</button>
             <button id="giveup-btn" class="main-btn" onclick="confirmLeaveGame()" style="font-size: 14px; background: #dc3545; width: 100%; max-width: 320px;">退出する（レートが下がります）</button>
             <br>
             <button id="back-lobby-btn" class="main-btn" onclick="returnToLobby()" style="background: #666; display: none; width: 100%; max-width: 320px;">ロビーに戻る</button>
@@ -162,7 +191,7 @@
         <div id="status" style="font-size: 14px;"></div>
     </div>
 
-    <div id="version-display" class="version-tag">v1.8.2</div>
+    <div id="version-display" class="version-tag">v1.9.6</div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
@@ -263,6 +292,7 @@
 
         function returnToLobby() {
             document.getElementById('victory-banner').style.display = 'none';
+            document.getElementById('correct-banner').style.display = 'none';
             leaveRoom();
         }
 
@@ -340,7 +370,7 @@
                 localStorage.setItem('strawberry_user_id', currentUser.id);
             }
 
-            if (!state.isReviewing && !state.isGameOver) {
+            if (!state.isReviewing && !state.isGameOver && !state.isGracePeriod) {
                 isPassRequested = false;
                 const passBtn = document.getElementById('pass-btn');
                 passBtn.innerText = 'パスを希望する';
@@ -355,10 +385,25 @@
             });
             document.getElementById('pass-status').innerHTML = passMsgHtml;
 
+            const passBtn = document.getElementById('pass-btn');
+
+            // 15秒猶予ダイアログの表示制御（拒否した場合は消去）
+            const graceControls = document.getElementById('grace-controls');
+            if (state.isGracePeriod) {
+                const me = state.players.find(p => p.dbId === currentUser?.id);
+                if (me && !me.passRequested && !me.hasRejectedGrace) {
+                    graceControls.style.display = 'block';
+                } else {
+                    graceControls.style.display = 'none';
+                }
+            } else {
+                graceControls.style.display = 'none';
+            }
+
             const isLocked = state.isReviewing || state.isGameOver;
             document.getElementById('expression').disabled = isLocked;
             document.getElementById('submit-btn').disabled = isLocked;
-            document.getElementById('pass-btn').disabled = state.isGameOver;
+            passBtn.disabled = state.isGameOver || state.isGracePeriod;
 
             clearInterval(reviewTimer);
             document.getElementById('timer-box').innerText = '';
@@ -376,8 +421,18 @@
                 }, 1000);
             }
 
+            if (state.isReviewing && !state.isGameOver && state.lastCorrectUser) {
+                document.getElementById('correct-user-name').innerText = state.lastCorrectUser;
+                document.getElementById('correct-expr-text').innerText = `式: ${state.lastExpression} = 15`;
+                document.getElementById('correct-banner').style.display = 'block';
+            } else {
+                document.getElementById('correct-banner').style.display = 'none';
+            }
+
             if (state.isGameOver) {
                 document.getElementById('back-lobby-btn').style.display = 'block';
+                document.getElementById('correct-banner').style.display = 'none';
+                
                 const sorted = [...state.players].sort((a, b) => b.score - a.score);
                 const winner = sorted[0];
                 
@@ -418,6 +473,25 @@
             document.getElementById('status').innerHTML = statusHtml;
         }
 
+        function onExpressionInput() {
+            const val = document.getElementById('expression').value;
+            if (currentGameRoom) {
+                socket.emit('updateExpression', { roomId: currentGameRoom, expression: val });
+            }
+        }
+
+        function acceptPass() {
+            if (currentGameRoom) {
+                socket.emit('acceptPass', { roomId: currentGameRoom });
+            }
+        }
+
+        function rejectPass() {
+            if (currentGameRoom) {
+                socket.emit('rejectPass', { roomId: currentGameRoom });
+            }
+        }
+
         function togglePass() {
             isPassRequested = !isPassRequested;
             const btn = document.getElementById('pass-btn');
@@ -443,6 +517,7 @@
             input.value = text.substring(0, start) + val + text.substring(end);
             input.focus();
             input.setSelectionRange(start + val.length, start + val.length);
+            onExpressionInput();
         }
 
         function backspaceExpr() {
@@ -458,11 +533,13 @@
                 input.setSelectionRange(start - 1, start - 1);
             }
             input.focus();
+            onExpressionInput();
         }
 
         function clearExpr() {
             document.getElementById('expression').value = '';
             document.getElementById('expression').focus();
+            onExpressionInput();
         }
 
         function sendCalc() {
@@ -470,6 +547,7 @@
             if (!expression.trim()) return;
             socket.emit('tryCalc', { roomId: currentGameRoom, expression });
         }
+
         function confirmLeaveGame() {
             if (confirm('途中で退出するとレートが16下がります。本当に退出しますか？')) {
                 socket.emit('leaveGame', { roomId: currentGameRoom });
