@@ -62,7 +62,6 @@
             max-width: 400px;
         }
 
-        /* 正解バナーの位置を少し下げて重なりを解消 */
         .correct-banner {
             display: none;
             position: fixed;
@@ -158,7 +157,6 @@
         <div id="timer-box"></div>
         <div id="pass-status"></div>
         
-        <!-- 15秒猶予中のポップアップ提案コントロール -->
         <div id="grace-controls" style="display: none; margin: 10px auto; padding: 10px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 8px; max-width: 350px;">
             <p style="margin: 0 0 8px 0; font-size: 14px; color: #856404; font-weight: bold;">他のプレイヤーからパス提案されました（15秒猶予中）</p>
             <button class="main-btn" onclick="acceptPass()" style="background: #ffc107; color: #000; font-size: 13px; width: 45%; padding: 6px 5px; margin: 2px; display: inline-block;">承諾（すぐ次へ）</button>
@@ -191,7 +189,7 @@
         <div id="status" style="font-size: 14px;"></div>
     </div>
 
-    <div id="version-display" class="version-tag">v1.9.7</div>
+    <div id="version-display" class="version-tag">v1.9.8</div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
@@ -302,13 +300,17 @@
         });
 
         socket.on('lobbyData', (data) => {
-            let rankHtml = '<table width="100%">';
-            data.ranking.forEach((u, index) => {
-                const crown = index === 0 ? '👑 ' : index === 1 ? '🥈 ' : index === 2 ? '🥉 ' : `${index + 1}. `;
-                rankHtml += `<tr><td>${crown}${u.username}</td><td align="right" style="color:#d81b60; font-weight:bold;">${u.rating}</td></tr>`;
-            });
-            rankHtml += '</table>';
-            document.getElementById('ranking-list').innerHTML = rankHtml;
+            if (data.ranking.length === 0) {
+                document.getElementById('ranking-list').innerHTML = '<span style="color:#888;">対象者なし（1000以外）</span>';
+            } else {
+                let rankHtml = '<table width="100%">';
+                data.ranking.forEach((u, index) => {
+                    const crown = index === 0 ? '👑 ' : index === 1 ? '🥈 ' : index === 2 ? '🥉 ' : `${index + 1}. `;
+                    rankHtml += `<tr><td>${crown}${u.username}</td><td align="right" style="color:#d81b60; font-weight:bold;">${u.rating}</td></tr>`;
+                });
+                rankHtml += '</table>';
+                document.getElementById('ranking-list').innerHTML = rankHtml;
+            }
 
             if (data.roomList.length === 0) {
                 document.getElementById('room-list').innerHTML = '<span style="color:#888;">作成された部屋はありません</span>';

@@ -11,7 +11,7 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-const VERSION = "v1.9.6";
+const VERSION = "v1.9.8";
 const MONGO_URL = 'mongodb+srv://e221239_db_user:Y0u667841you@cluster0.yxjjzel.mongodb.net/strawberry_kingdom?retryWrites=true&w=majority&appName=Cluster0';
 
 const DB_NAME = 'strawberry_kingdom';
@@ -124,9 +124,10 @@ function evaluateExpression(expr) {
     return val;
 }
 
+// ★ レートが1000でない人のみランキングに抽出
 async function getLobbyInfo() {
     try {
-        const ranking = await usersCollection.find({}, { projection: { username: 1, rating: 1 } })
+        const ranking = await usersCollection.find({ rating: { $ne: 1000 } }, { projection: { username: 1, rating: 1 } })
             .sort({ rating: -1 }).limit(10).toArray();
         const formattedRanking = ranking.map(u => ({ username: u.username, rating: u.rating }));
         const roomList = Object.keys(rooms).map(roomId => ({
@@ -191,14 +192,12 @@ function checkAndProcessPass(room) {
     if (!room.isGameStarted || room.isReviewing || room.isGameOver || room.isGracePeriod) return false;
 
     const passCount = room.players.filter(p => p.passRequested).length;
-    // 過半数の計算：2人なら2人、3人なら2人、4人なら3人
     const requiredPass = Math.floor(room.players.length / 2) + 1;
 
     if (passCount >= requiredPass) {
         const activeNotPassedPlayers = room.players.filter(p => !p.passRequested);
         const typingPlayer = activeNotPassedPlayers.find(p => hasPlayerEnteredCardNumber(p, room.fieldCards));
 
-        // まだパスしていない人で入力中の人がいる場合（※全員パス済みの場合はtypingPlayerは存在しない）
         if (typingPlayer) {
             room.isGracePeriod = true;
             room.graceTargetUser = typingPlayer.username;
@@ -212,7 +211,6 @@ function checkAndProcessPass(room) {
 
             return true;
         } else {
-            // 入力中の人がいない（または全員がパスした）場合は即座に次の問題へ
             room.message = '全員の合意または過半数によりパスが成立しました。新しいカードに更新します！';
             initGame(room);
             io.to(room.roomId).emit('updateState', room);
