@@ -17,7 +17,7 @@
         .calc-btn { min-width: 45px; height: 45px; font-size: 18px; margin: 3px; padding: 0 8px; background: #ff69b4; color: white; border: none; border-radius: 8px; cursor: pointer; user-select: none; white-space: nowrap; }
         .calc-btn:active { background: #db0073; }
         
-        input, button.main-btn { padding: 10px; font-size: 16px; border-radius: 5px; margin: 5px; width: 100%; max-width: 320px; }
+        input, button.main-btn { padding: 10px; font-size: 16px; border-radius: 5px; margin: 5px auto; width: 100%; max-width: 320px; display: block; }
         button.main-btn { background: #ff1493; color: white; border: none; cursor: pointer; font-weight: bold; }
         button.main-btn:hover { background: #db0073; }
 
@@ -62,10 +62,11 @@
             max-width: 400px;
         }
 
+        /* 正解バナーの位置を少し下げて重なりを解消 */
         .correct-banner {
             display: none;
             position: fixed;
-            top: 25%;
+            top: 35%;
             left: 50%;
             transform: translate(-50%, -50%);
             background: linear-gradient(135deg, #28a745, #20c997);
@@ -160,8 +161,8 @@
         <!-- 15秒猶予中のポップアップ提案コントロール -->
         <div id="grace-controls" style="display: none; margin: 10px auto; padding: 10px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 8px; max-width: 350px;">
             <p style="margin: 0 0 8px 0; font-size: 14px; color: #856404; font-weight: bold;">他のプレイヤーからパス提案されました（15秒猶予中）</p>
-            <button class="main-btn" onclick="acceptPass()" style="background: #ffc107; color: #000; font-size: 13px; width: 45%; padding: 6px 5px; margin: 2px;">承諾（すぐ次へ）</button>
-            <button class="main-btn" onclick="rejectPass()" style="background: #6c757d; color: #fff; font-size: 13px; width: 45%; padding: 6px 5px; margin: 2px;">承諾しない（入力）</button>
+            <button class="main-btn" onclick="acceptPass()" style="background: #ffc107; color: #000; font-size: 13px; width: 45%; padding: 6px 5px; margin: 2px; display: inline-block;">承諾（すぐ次へ）</button>
+            <button class="main-btn" onclick="rejectPass()" style="background: #6c757d; color: #fff; font-size: 13px; width: 45%; padding: 6px 5px; margin: 2px; display: inline-block;">承諾しない（入力）</button>
         </div>
 
         <h3 style="font-size: 1rem;">場のカード（タップで式に入力）</h3>
@@ -179,19 +180,18 @@
                 <button class="calc-btn" onclick="backspaceExpr()" style="background:#888;" title="1文字消す">←</button>
                 <button class="calc-btn" onclick="clearExpr()" style="background:#555;">クリア</button>
             </div>
-            <button id="submit-btn" class="main-btn" onclick="sendCalc()" style="font-size: 16px; background: #28a745; width: 100%; max-width: 320px;">「15」で早押し解答！</button>
-            <!-- パスボタンは常に表示（スタイルはブロック表示） -->
-            <button id="pass-btn" class="main-btn" onclick="togglePass()" style="font-size: 14px; background: #ff8c00; width: 100%; max-width: 320px; display: block;">パスを希望する</button>
-            <button id="giveup-btn" class="main-btn" onclick="confirmLeaveGame()" style="font-size: 14px; background: #dc3545; width: 100%; max-width: 320px;">退出する（レートが下がります）</button>
+            <button id="submit-btn" class="main-btn" onclick="sendCalc()" style="font-size: 16px; background: #28a745;">「15」で早押し解答！</button>
+            <button id="pass-btn" class="main-btn" onclick="togglePass()" style="font-size: 14px; background: #ff8c00;">パスを希望する</button>
+            <button id="giveup-btn" class="main-btn" onclick="confirmLeaveGame()" style="font-size: 14px; background: #dc3545;">退出する（レートが下がります）</button>
             <br>
-            <button id="back-lobby-btn" class="main-btn" onclick="returnToLobby()" style="background: #666; display: none; width: 100%; max-width: 320px;">ロビーに戻る</button>
+            <button id="back-lobby-btn" class="main-btn" onclick="returnToLobby()" style="background: #666; display: none;">ロビーに戻る</button>
         </div>
 
         <h3 style="font-size: 1rem; margin-top: 15px;">対戦状況</h3>
         <div id="status" style="font-size: 14px;"></div>
     </div>
 
-    <div id="version-display" class="version-tag">v1.9.6</div>
+    <div id="version-display" class="version-tag">v1.9.7</div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
@@ -317,7 +317,7 @@
                 data.roomList.forEach(r => {
                     roomHtml += `<div class="room-item"><span><b>${r.host}</b>の部屋 (${r.playerCount}人)</span>`;
                     if (r.status === '募集中') {
-                        roomHtml += `<button class="main-btn" style="padding: 4px 10px; font-size: 12px; width: auto;" onclick="joinRoom('${r.roomId}')">参加</button>`;
+                        roomHtml += `<button class="main-btn" style="padding: 4px 10px; font-size: 12px; width: auto; margin: 0;" onclick="joinRoom('${r.roomId}')">参加</button>`;
                     } else {
                         roomHtml += `<span style="color: red; font-size: 12px;">対戦中</span>`;
                     }
@@ -387,7 +387,6 @@
 
             const passBtn = document.getElementById('pass-btn');
 
-            // 15秒猶予ダイアログの表示制御（拒否した場合は消去）
             const graceControls = document.getElementById('grace-controls');
             if (state.isGracePeriod) {
                 const me = state.players.find(p => p.dbId === currentUser?.id);
