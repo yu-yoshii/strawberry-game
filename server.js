@@ -125,20 +125,34 @@ function evaluateExpression(expr) {
 }
 
 // ★ レートが1000でない人のみランキングに抽出
+// ★ ベストランキング(降順) と ワーストランキング(昇順) を両方取得する
 async function getLobbyInfo() {
     try {
+        // ベスト10（レートが高い順、1000を除く）
         const ranking = await usersCollection.find({ rating: { $ne: 1000 } }, { projection: { username: 1, rating: 1 } })
-            .sort({ rating: -1 }).limit(10).toArray();
+            .sort({ rating: -1 })
+            .limit(10)
+            .toArray();
+
+        // ワースト10（レートが低い順、1000を除く）
+        const worstRanking = await usersCollection.find({ rating: { $ne: 1000 } }, { projection: { username: 1, rating: 1 } })
+            .sort({ rating: 1 })
+            .limit(10)
+            .toArray();
+
         const formattedRanking = ranking.map(u => ({ username: u.username, rating: u.rating }));
+        const formattedWorst = worstRanking.map(u => ({ username: u.username, rating: u.rating }));
+
         const roomList = Object.keys(rooms).map(roomId => ({
             roomId,
             host: rooms[roomId].hostName,
             playerCount: rooms[roomId].players.length,
             status: rooms[roomId].isGameStarted ? '対戦中' : '募集中'
         }));
-        return { ranking: formattedRanking, roomList };
+
+        return { ranking: formattedRanking, worstRanking: formattedWorst, roomList };
     } catch (err) {
-        return { ranking: [], roomList: [] };
+        return { ranking: [], worstRanking: [], roomList: [] };
     }
 }
 
