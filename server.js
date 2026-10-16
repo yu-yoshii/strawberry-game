@@ -11,9 +11,8 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-const VERSION = "v1.9.9";
+const VERSION = "v2.0.1";
 const MONGO_URL = 'mongodb+srv://e221239_db_user:Y0u667841you@cluster0.yxjjzel.mongodb.net/strawberry_kingdom?retryWrites=true&w=majority&appName=Cluster0';
-
 const DB_NAME = 'strawberry_kingdom';
 
 let db, usersCollection;
@@ -159,11 +158,21 @@ function getBaseRatingChange(rankIndex, totalPlayers) {
     return -16;
 }
 
-function initGame(room) {
-    if (room.graceTimer) {
-        clearTimeout(room.graceTimer);
-        room.graceTimer = null;
+function clearRoomTimers(room) {
+    if (room) {
+        if (room.graceTimer) {
+            clearTimeout(room.graceTimer);
+            room.graceTimer = null;
+        }
+        if (room.reviewTimerRef) {
+            clearTimeout(room.reviewTimerRef);
+            room.reviewTimerRef = null;
+        }
     }
+}
+
+function initGame(room) {
+    clearRoomTimers(room);
     room.isGracePeriod = false;
 
     if (room.players) {
@@ -197,19 +206,19 @@ function checkAndProcessPass(room) {
     const requiredPass = Math.floor(room.players.length / 2) + 1;
 
     if (passCount >= requiredPass) {
-        // まだパスしていない人で、カードの数字を入力している人がいるか確認
         const activeNotPassedPlayers = room.players.filter(p => !p.passRequested);
         const typingPlayer = activeNotPassedPlayers.find(p => hasPlayerEnteredCardNumber(p, room.fieldCards));
 
         if (typingPlayer) {
-            // 15秒の猶予期間を開始
             room.isGracePeriod = true;
             room.message = `⚠️ パスが成立しましたが、入力中のプレイヤーがいるため最大15秒間待ちます...`;
             io.to(room.roomId).emit('updateState', room);
 
+            // 修正2: 安全なタイマー発火ガード
             room.graceTimer = setTimeout(() => {
                 if (!rooms[room.roomId] || rooms[room.roomId] !== room) return;
-                // 15秒経っても誰も正解しなかった場合、強制的に次の問題へ
+                if (room.isGameOver || room.isReviewing || !room.isGracePeriod) return;
+
                 room.isGracePeriod = false;
                 room.graceTimer = null;
                 room.message = `⏱️ 15秒経過しました。次の問題へ進みます！`;
@@ -219,7 +228,6 @@ function checkAndProcessPass(room) {
 
             return true;
         } else {
-            // 入力中の人がいなければ即座に次へ
             room.message = 'パスが成立しました。新しいカードに更新します！';
             initGame(room);
             io.to(room.roomId).emit('updateState', room);
@@ -230,6 +238,7 @@ function checkAndProcessPass(room) {
 }
 
 async function finishGame(room) {
+    clearRoomTimers(room);
     room.isGameOver = true;
     const sortedPlayers = [...room.players].sort((a, b) => b.score - a.score);
     const totalPlayers = sortedPlayers.length;
@@ -261,6 +270,7 @@ async function finishGame(room) {
     });
 
     for (let p of sortedPlayers) {
+        if (!ObjectId.isValid(p.dbId)) continue; // 修正1: 不正IDのクラッシュ防止
         let change = totalPlayers === 1 ? 0 : (calculatedChanges.get(p.dbId) || 0);
         try {
             const userDoc = await usersCollection.findOne({ _id: new ObjectId(p.dbId) });
@@ -283,7 +293,7 @@ async function finishGame(room) {
 io.on('connection', (socket) => {
     socket.on('restoreSession', async (userId, callback) => {
         try {
-            if (!ObjectId.isValid(userId)) return callback({ success: false });
+            if (!userId || !ObjectId.isValid(userId)) return callback({ success: false });
             const user = await usersCollection.findOne({ _id: new ObjectId(userId) });
             if (!user) callback({ success: false });
             else {
@@ -299,7 +309,7 @@ io.on('connection', (socket) => {
 
     socket.on('createRoom', async ({ userId }) => {
         try {
-            if (!ObjectId.isValid(userId)) return;
+            if (!userId || !ObjectId.isValid(userId)) return;
             const user = await usersCollection.findOne({ _id: new ObjectId(userId) });
             if (!user) return;
 
@@ -325,6 +335,7 @@ io.on('connection', (socket) => {
                 isReviewing: false,
                 isGracePeriod: false,
                 graceTimer: null,
+                reviewTimerRef: null,
                 isGameOver: false,
                 message: `${user.username} が部屋を作成しました。メンバーを待っています...`
             };
@@ -343,11 +354,15 @@ io.on('connection', (socket) => {
         }
 
         try {
-            if (!ObjectId.isValid(userId)) return;
+            if (!userId || !ObjectId.isValid(userId)) return;
             const user = await usersCollection.findOne({ _id: new ObjectId(userId) });
             if (!user) return;
 
-            if (room.players.some(p => p.dbId === user._id.toString())) {
+            // 既に自ルームに存在している場合は再結合を許可
+            const existingPlayer = room.players.find(p => p.dbId === user._id.toString());
+            if (existingPlayer) {
+                existingPlayer.id = socket.id; // ソケットIDを更新
+                socket.join(roomId);
                 socket.emit('joinedRoom', room);
                 return;
             }
@@ -396,9 +411,7 @@ io.on('connection', (socket) => {
 
         player.passRequested = pass;
 
-        if (checkAndProcessPass(room)) {
-            // パス成立
-        } else {
+        if (!checkAndProcessPass(room)) {
             const passCount = room.players.filter(p => p.passRequested).length;
             const requiredPass = Math.floor(room.players.length / 2) + 1;
             room.message = `${player.username} がパスを希望しています (${passCount}/${requiredPass})`;
@@ -436,11 +449,7 @@ io.on('connection', (socket) => {
             const result = evaluateExpression(sanitized);
 
             if (Math.abs(result - 15) < 1e-9) {
-                // 15秒猶予中であっても、正解すればその人のもの（承認）
-                if (room.graceTimer) {
-                    clearTimeout(room.graceTimer);
-                    room.graceTimer = null;
-                }
+                clearRoomTimers(room);
                 room.isGracePeriod = false;
 
                 player.score++;
@@ -451,7 +460,7 @@ io.on('connection', (socket) => {
                 room.message = `🎉 ${player.username} が正解！ 「${expression} = 15」`;
                 io.to(roomId).emit('updateState', room);
 
-                setTimeout(async () => {
+                room.reviewTimerRef = setTimeout(async () => {
                     if (!rooms[roomId] || rooms[roomId] !== room) return;
                     if (player.score >= 3) {
                         finishGame(room);
@@ -480,7 +489,7 @@ io.on('connection', (socket) => {
         if (playerIndex !== -1) {
             const leavingPlayer = room.players[playerIndex];
 
-            if (room.isGameStarted && !room.isGameOver) {
+            if (room.isGameStarted && !room.isGameOver && ObjectId.isValid(leavingPlayer.dbId)) {
                 try {
                     const userDoc = await usersCollection.findOne({ _id: new ObjectId(leavingPlayer.dbId) });
                     if (userDoc) {
@@ -492,11 +501,12 @@ io.on('connection', (socket) => {
             }
 
             room.players.splice(playerIndex, 1);
-            if (room.isGameStarted && !room.isGameOver) checkAndProcessPass(room);
 
             if (!room.isGameStarted) {
-                if (room.players.length === 0) delete rooms[roomId];
-                else {
+                if (room.players.length === 0) {
+                    clearRoomTimers(room);
+                    delete rooms[roomId];
+                } else {
                     if (room.hostId === socket.id) {
                         room.hostId = room.players[0].id;
                         room.hostName = room.players[0].username;
@@ -505,26 +515,9 @@ io.on('connection', (socket) => {
                 }
             } else if (!room.isGameOver) {
                 if (room.players.length < 2) {
-                    room.isGameOver = true;
-                    if (room.players.length === 1) {
-                        room.message = `⚠️ ${leavingPlayer.username} が退出しました。残りのプレイヤー (${room.players[0].username}) の勝利となります！`;
-                        const winner = room.players[0];
-                        try {
-                            const userDoc = await usersCollection.findOne({ _id: new ObjectId(winner.dbId) });
-                            if (userDoc) {
-                                let newRating = userDoc.rating + 15;
-                                await usersCollection.updateOne({ _id: new ObjectId(winner.dbId) }, { $set: { rating: newRating } });
-                                winner.rating = newRating;
-                                io.to(roomId).emit('updateState', room);
-                                broadcastLobbyData();
-                            }
-                        } catch (err) { console.error(err); }
-                    } else {
-                        room.message = `⚠️ 参加者がいなくなったため試合終了となりました。`;
-                        io.to(roomId).emit('updateState', room);
-                    }
-                    setTimeout(() => { delete rooms[roomId]; }, 5000);
+                    finishGame(room);
                 } else {
+                    checkAndProcessPass(room);
                     room.message = `⚠️ ${leavingPlayer.username} が退出しました。ゲームを続行します！`;
                     io.to(roomId).emit('updateState', room);
                 }
@@ -540,8 +533,10 @@ io.on('connection', (socket) => {
             if (playerIndex !== -1) {
                 if (!room.isGameStarted) {
                     room.players.splice(playerIndex, 1);
-                    if (room.players.length === 0) delete rooms[roomId];
-                    else {
+                    if (room.players.length === 0) {
+                        clearRoomTimers(room);
+                        delete rooms[roomId];
+                    } else {
                         if (room.hostId === socket.id) {
                             room.hostId = room.players[0].id;
                             room.hostName = room.players[0].username;
@@ -550,39 +545,23 @@ io.on('connection', (socket) => {
                     }
                 } else if (!room.isGameOver) {
                     const disconnectedPlayer = room.players[playerIndex];
-                    try {
-                        const userDoc = await usersCollection.findOne({ _id: new ObjectId(disconnectedPlayer.dbId) });
-                        if (userDoc) {
-                            let newRating = Math.max(100, userDoc.rating - 16);
-                            await usersCollection.updateOne({ _id: new ObjectId(disconnectedPlayer.dbId) }, { $set: { rating: newRating } });
-                            broadcastLobbyData();
-                        }
-                    } catch (err) { console.error(err); }
+                    if (ObjectId.isValid(disconnectedPlayer.dbId)) {
+                        try {
+                            const userDoc = await usersCollection.findOne({ _id: new ObjectId(disconnectedPlayer.dbId) });
+                            if (userDoc) {
+                                let newRating = Math.max(100, userDoc.rating - 16);
+                                await usersCollection.updateOne({ _id: new ObjectId(disconnectedPlayer.dbId) }, { $set: { rating: newRating } });
+                                broadcastLobbyData();
+                            }
+                        } catch (err) { console.error(err); }
+                    }
 
                     room.players.splice(playerIndex, 1);
-                    if (!room.isGameOver) checkAndProcessPass(room);
 
                     if (room.players.length < 2) {
-                        room.isGameOver = true;
-                        if (room.players.length === 1) {
-                            room.message = `⚠️ ${disconnectedPlayer.username} が切断しました。残りのプレイヤー (${room.players[0].username}) の勝利となります！`;
-                            const winner = room.players[0];
-                            try {
-                                const userDoc = await usersCollection.findOne({ _id: new ObjectId(winner.dbId) });
-                                if (userDoc) {
-                                    let newRating = userDoc.rating + 15;
-                                    await usersCollection.updateOne({ _id: new ObjectId(winner.dbId) }, { $set: { rating: newRating } });
-                                    winner.rating = newRating;
-                                    io.to(roomId).emit('updateState', room);
-                                    broadcastLobbyData();
-                                }
-                            } catch (err) { console.error(err); }
-                        } else {
-                            room.message = `⚠️ 参加者がいなくなったため試合終了となりました。`;
-                            io.to(roomId).emit('updateState', room);
-                        }
-                        setTimeout(() => { delete rooms[roomId]; }, 5000);
+                        finishGame(room);
                     } else {
+                        checkAndProcessPass(room);
                         room.message = `⚠️ ${disconnectedPlayer.username} が切断しました（脱落）。ゲームを続行します！`;
                         io.to(roomId).emit('updateState', room);
                     }

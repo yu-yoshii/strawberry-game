@@ -20,6 +20,7 @@
         input, button.main-btn { padding: 10px; font-size: 16px; border-radius: 5px; margin: 5px auto; width: 100%; max-width: 320px; display: block; }
         button.main-btn { background: #ff1493; color: white; border: none; cursor: pointer; font-weight: bold; }
         button.main-btn:hover { background: #db0073; }
+        button.main-btn:disabled { background: #ccc !important; cursor: not-allowed; }
 
         .screen { display: none; width: 100%; max-width: 600px; margin: 0 auto; }
         .screen.active { display: block; }
@@ -187,7 +188,7 @@
         <div id="status" style="font-size: 14px;"></div>
     </div>
 
-    <div id="version-display" class="version-tag">v1.9.9</div>
+    <div id="version-display" class="version-tag">v2.0.1</div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
@@ -200,7 +201,7 @@
         window.addEventListener('DOMContentLoaded', () => {
             const savedUserId = localStorage.getItem('strawberry_user_id');
             if (savedUserId) {
-                socket.emit('restoreSession', parseInt(savedUserId), (res) => {
+                socket.emit('restoreSession', savedUserId, (res) => {
                     if (res && res.success) {
                         currentUser = res.user;
                         updateWelcomeMsg();
@@ -213,16 +214,20 @@
             }
         });
 
+        // 修正3: 再接続（瞬断後）に自動でルームとセッションを再復帰させる
         socket.on('connect', () => {
             const savedUserId = localStorage.getItem('strawberry_user_id');
             if (savedUserId && !currentUser) {
-                socket.emit('restoreSession', parseInt(savedUserId), (res) => {
+                socket.emit('restoreSession', savedUserId, (res) => {
                     if (res && res.success) {
                         currentUser = res.user;
                         updateWelcomeMsg();
                         socket.emit('requestLobbyData');
                     }
                 });
+            }
+            if (currentGameRoom && currentUser) {
+                socket.emit('joinRoom', { roomId: currentGameRoom, userId: currentUser.id });
             }
         });
 
@@ -381,11 +386,18 @@
                 localStorage.setItem('strawberry_user_id', currentUser.id);
             }
 
+            const passBtn = document.getElementById('pass-btn');
+
             if (!state.isReviewing && !state.isGameOver && !state.isGracePeriod) {
-                isPassRequested = false;
-                const passBtn = document.getElementById('pass-btn');
-                passBtn.innerText = 'パスを希望する';
-                passBtn.style.background = '#ff8c00';
+                const me = state.players.find(p => p.dbId === currentUser?.id);
+                isPassRequested = me ? me.passRequested : false;
+                if (isPassRequested) {
+                    passBtn.innerText = 'パスを解除する';
+                    passBtn.style.background = '#6c757d';
+                } else {
+                    passBtn.innerText = 'パスを希望する';
+                    passBtn.style.background = '#ff8c00';
+                }
             }
 
             let passMsgHtml = '';
@@ -396,12 +408,10 @@
             });
             document.getElementById('pass-status').innerHTML = passMsgHtml;
 
-            const passBtn = document.getElementById('pass-btn');
-
             const isLocked = state.isReviewing || state.isGameOver;
             document.getElementById('expression').disabled = isLocked;
             document.getElementById('submit-btn').disabled = isLocked;
-            passBtn.disabled = state.isGameOver;
+            passBtn.disabled = state.isGameOver || state.isGracePeriod;
 
             clearInterval(reviewTimer);
             document.getElementById('timer-box').innerText = '';
