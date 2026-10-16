@@ -116,20 +116,19 @@
             <button class="main-btn" onclick="createRoom()" style="font-size: 16px; background: #28a745; width: 100%; max-width: 300px;">🏠 新しい部屋を作る</button>
             
             <div class="lobby-container">
-    <div class="lobby-box">
-        <h3>🏰 部屋一覧（参加）</h3>
-        <div id="room-list" class="room-list">部屋はありません</div>
-    </div>
-    <div class="lobby-box">
-        <h3>👑 トップランキング</h3>
-        <div id="ranking-list" class="ranking-list">読み込み中...</div>
-    </div>
-    <!-- ★ ワーストランキングのボックスを追加 -->
-    <div class="lobby-box">
-        <h3>💀 ワーストランキング</h3>
-        <div id="worst-ranking-list" class="ranking-list">読み込み中...</div>
-    </div>
-</div>
+                <div class="lobby-box">
+                    <h3>🏰 部屋一覧（参加）</h3>
+                    <div id="room-list" class="room-list">部屋はありません</div>
+                </div>
+                <div class="lobby-box">
+                    <h3>👑 トップランキング</h3>
+                    <div id="ranking-list" class="ranking-list">読み込み中...</div>
+                </div>
+                <div class="lobby-box">
+                    <h3>💀 ワーストランキング</h3>
+                    <div id="worst-ranking-list" class="ranking-list">読み込み中...</div>
+                </div>
+            </div>
 
             <br>
             <button onclick="logout()" style="background: none; border: none; color: #888; cursor: pointer; text-decoration: underline; font-size: 14px;">ログアウト</button>
@@ -161,12 +160,6 @@
         <div id="message">読み込み中...</div>
         <div id="timer-box"></div>
         <div id="pass-status"></div>
-        
-        <div id="grace-controls" style="display: none; margin: 10px auto; padding: 10px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 8px; max-width: 350px;">
-            <p style="margin: 0 0 8px 0; font-size: 14px; color: #856404; font-weight: bold;">他のプレイヤーからパス提案されました（15秒猶予中）</p>
-            <button class="main-btn" onclick="acceptPass()" style="background: #ffc107; color: #000; font-size: 13px; width: 45%; padding: 6px 5px; margin: 2px; display: inline-block;">承諾（すぐ次へ）</button>
-            <button class="main-btn" onclick="rejectPass()" style="background: #6c757d; color: #fff; font-size: 13px; width: 45%; padding: 6px 5px; margin: 2px; display: inline-block;">承諾しない（入力）</button>
-        </div>
 
         <h3 style="font-size: 1rem;">場のカード（タップで式に入力）</h3>
         <div id="field-cards"></div>
@@ -194,7 +187,7 @@
         <div id="status" style="font-size: 14px;"></div>
     </div>
 
-    <div id="version-display" class="version-tag">v1.9.8</div>
+    <div id="version-display" class="version-tag">v1.9.9</div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
@@ -305,48 +298,45 @@
         });
 
         socket.on('lobbyData', (data) => {
-    // 1. トップランキングの描画
-    if (!data.ranking || data.ranking.length === 0) {
-        document.getElementById('ranking-list').innerHTML = '<span style="color:#888;">対象者なし（1000以外）</span>';
-    } else {
-        let rankHtml = '<table width="100%">';
-        data.ranking.forEach((u, index) => {
-            const crown = index === 0 ? '👑 ' : index === 1 ? '🥈 ' : index === 2 ? '🥉 ' : `${index + 1}. `;
-            rankHtml += `<tr><td>${crown}${u.username}</td><td align="right" style="color:#d81b60; font-weight:bold;">${u.rating}</td></tr>`;
-        });
-        rankHtml += '</table>';
-        document.getElementById('ranking-list').innerHTML = rankHtml;
-    }
-
-    // 2. ★ ワーストランキングの描画
-    if (!data.worstRanking || data.worstRanking.length === 0) {
-        document.getElementById('worst-ranking-list').innerHTML = '<span style="color:#888;">対象者なし（1000以外）</span>';
-    } else {
-        let worstHtml = '<table width="100%">';
-        data.worstRanking.forEach((u, index) => {
-            worstHtml += `<tr><td>${index + 1}. ${u.username}</td><td align="right" style="color:#555; font-weight:bold;">${u.rating}</td></tr>`;
-        });
-        worstHtml += '</table>';
-        document.getElementById('worst-ranking-list').innerHTML = worstHtml;
-    }
-
-    // 3. 部屋一覧の描画
-    if (data.roomList.length === 0) {
-        document.getElementById('room-list').innerHTML = '<span style="color:#888;">作成された部屋はありません</span>';
-    } else {
-        let roomHtml = '';
-        data.roomList.forEach(r => {
-            roomHtml += `<div class="room-item"><span><b>${r.host}</b>の部屋 (${r.playerCount}人)</span>`;
-            if (r.status === '募集中') {
-                roomHtml += `<button class="main-btn" style="padding: 4px 10px; font-size: 12px; width: auto; margin: 0;" onclick="joinRoom('${r.roomId}')">参加</button>`;
+            if (!data.ranking || data.ranking.length === 0) {
+                document.getElementById('ranking-list').innerHTML = '<span style="color:#888;">対象者なし</span>';
             } else {
-                roomHtml += `<span style="color: red; font-size: 12px;">対戦中</span>`;
+                let rankHtml = '<table width="100%">';
+                data.ranking.forEach((u, index) => {
+                    const crown = index === 0 ? '👑 ' : index === 1 ? '🥈 ' : index === 2 ? '🥉 ' : `${index + 1}. `;
+                    rankHtml += `<tr><td>${crown}${u.username}</td><td align="right" style="color:#d81b60; font-weight:bold;">${u.rating}</td></tr>`;
+                });
+                rankHtml += '</table>';
+                document.getElementById('ranking-list').innerHTML = rankHtml;
             }
-            roomHtml += `</div>`;
+
+            if (!data.worstRanking || data.worstRanking.length === 0) {
+                document.getElementById('worst-ranking-list').innerHTML = '<span style="color:#888;">対象者なし</span>';
+            } else {
+                let worstHtml = '<table width="100%">';
+                data.worstRanking.forEach((u, index) => {
+                    worstHtml += `<tr><td>${index + 1}. ${u.username}</td><td align="right" style="color:#555; font-weight:bold;">${u.rating}</td></tr>`;
+                });
+                worstHtml += '</table>';
+                document.getElementById('worst-ranking-list').innerHTML = worstHtml;
+            }
+
+            if (data.roomList.length === 0) {
+                document.getElementById('room-list').innerHTML = '<span style="color:#888;">作成された部屋はありません</span>';
+            } else {
+                let roomHtml = '';
+                data.roomList.forEach(r => {
+                    roomHtml += `<div class="room-item"><span><b>${r.host}</b>の部屋 (${r.playerCount}人)</span>`;
+                    if (r.status === '募集中') {
+                        roomHtml += `<button class="main-btn" style="padding: 4px 10px; font-size: 12px; width: auto; margin: 0;" onclick="joinRoom('${r.roomId}')">参加</button>`;
+                    } else {
+                        roomHtml += `<span style="color: red; font-size: 12px;">対戦中</span>`;
+                    }
+                    roomHtml += `</div>`;
+                });
+                document.getElementById('room-list').innerHTML = roomHtml;
+            }
         });
-        document.getElementById('room-list').innerHTML = roomHtml;
-    }
-});
 
         function updateRoomView(room) {
             if (room.isGameStarted) {
@@ -408,22 +398,10 @@
 
             const passBtn = document.getElementById('pass-btn');
 
-            const graceControls = document.getElementById('grace-controls');
-            if (state.isGracePeriod) {
-                const me = state.players.find(p => p.dbId === currentUser?.id);
-                if (me && !me.passRequested && !me.hasRejectedGrace) {
-                    graceControls.style.display = 'block';
-                } else {
-                    graceControls.style.display = 'none';
-                }
-            } else {
-                graceControls.style.display = 'none';
-            }
-
             const isLocked = state.isReviewing || state.isGameOver;
             document.getElementById('expression').disabled = isLocked;
             document.getElementById('submit-btn').disabled = isLocked;
-            passBtn.disabled = state.isGameOver || state.isGracePeriod;
+            passBtn.disabled = state.isGameOver;
 
             clearInterval(reviewTimer);
             document.getElementById('timer-box').innerText = '';
@@ -497,18 +475,6 @@
             const val = document.getElementById('expression').value;
             if (currentGameRoom) {
                 socket.emit('updateExpression', { roomId: currentGameRoom, expression: val });
-            }
-        }
-
-        function acceptPass() {
-            if (currentGameRoom) {
-                socket.emit('acceptPass', { roomId: currentGameRoom });
-            }
-        }
-
-        function rejectPass() {
-            if (currentGameRoom) {
-                socket.emit('rejectPass', { roomId: currentGameRoom });
             }
         }
 

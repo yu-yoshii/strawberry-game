@@ -11,7 +11,7 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-const VERSION = "v1.9.8";
+const VERSION = "v1.9.9";
 const MONGO_URL = 'mongodb+srv://e221239_db_user:Y0u667841you@cluster0.yxjjzel.mongodb.net/strawberry_kingdom?retryWrites=true&w=majority&appName=Cluster0';
 
 const DB_NAME = 'strawberry_kingdom';
@@ -124,21 +124,12 @@ function evaluateExpression(expr) {
     return val;
 }
 
-// ★ レートが1000でない人のみランキングに抽出
-// ★ ベストランキング(降順) と ワーストランキング(昇順) を両方取得する
 async function getLobbyInfo() {
     try {
-        // ベスト10（レートが高い順、1000を除く）
         const ranking = await usersCollection.find({ rating: { $ne: 1000 } }, { projection: { username: 1, rating: 1 } })
-            .sort({ rating: -1 })
-            .limit(10)
-            .toArray();
-
-        // ワースト10（レートが低い順、1000を除く）
+            .sort({ rating: -1 }).limit(10).toArray();
         const worstRanking = await usersCollection.find({ rating: { $ne: 1000 } }, { projection: { username: 1, rating: 1 } })
-            .sort({ rating: 1 })
-            .limit(10)
-            .toArray();
+            .sort({ rating: 1 }).limit(10).toArray();
 
         const formattedRanking = ranking.map(u => ({ username: u.username, rating: u.rating }));
         const formattedWorst = worstRanking.map(u => ({ username: u.username, rating: u.rating }));
@@ -149,7 +140,6 @@ async function getLobbyInfo() {
             playerCount: rooms[roomId].players.length,
             status: rooms[roomId].isGameStarted ? '対戦中' : '募集中'
         }));
-
         return { ranking: formattedRanking, worstRanking: formattedWorst, roomList };
     } catch (err) {
         return { ranking: [], worstRanking: [], roomList: [] };
@@ -175,13 +165,11 @@ function initGame(room) {
         room.graceTimer = null;
     }
     room.isGracePeriod = false;
-    room.graceTargetUser = null;
 
     if (room.players) {
         room.players.forEach(p => {
             p.passRequested = false;
             p.currentExpression = '';
-            p.hasRejectedGrace = false;
         });
     }
     room.deck = [];
@@ -209,23 +197,30 @@ function checkAndProcessPass(room) {
     const requiredPass = Math.floor(room.players.length / 2) + 1;
 
     if (passCount >= requiredPass) {
+        // まだパスしていない人で、カードの数字を入力している人がいるか確認
         const activeNotPassedPlayers = room.players.filter(p => !p.passRequested);
         const typingPlayer = activeNotPassedPlayers.find(p => hasPlayerEnteredCardNumber(p, room.fieldCards));
 
         if (typingPlayer) {
+            // 15秒の猶予期間を開始
             room.isGracePeriod = true;
-            room.graceTargetUser = typingPlayer.username;
-            room.message = `⚠️ パスが成立しましたが、${typingPlayer.username} が解答を入力中のため15秒間待機します。`;
+            room.message = `⚠️ パスが成立しましたが、入力中のプレイヤーがいるため最大15秒間待ちます...`;
             io.to(room.roomId).emit('updateState', room);
 
             room.graceTimer = setTimeout(() => {
                 if (!rooms[room.roomId] || rooms[room.roomId] !== room) return;
-                processTimeoutAutoCalc(room, typingPlayer);
+                // 15秒経っても誰も正解しなかった場合、強制的に次の問題へ
+                room.isGracePeriod = false;
+                room.graceTimer = null;
+                room.message = `⏱️ 15秒経過しました。次の問題へ進みます！`;
+                initGame(room);
+                io.to(room.roomId).emit('updateState', room);
             }, 15000);
 
             return true;
         } else {
-            room.message = '全員の合意または過半数によりパスが成立しました。新しいカードに更新します！';
+            // 入力中の人がいなければ即座に次へ
+            room.message = 'パスが成立しました。新しいカードに更新します！';
             initGame(room);
             io.to(room.roomId).emit('updateState', room);
             return true;
@@ -234,67 +229,7 @@ function checkAndProcessPass(room) {
     return false;
 }
 
-async function processTimeoutAutoCalc(room, player) {
-    room.isGracePeriod = false;
-    room.graceTimer = null;
-
-    try {
-        const expr = player.currentExpression || '';
-        const sanitized = expr.replace(/×/g, '*').replace(/÷/g, '/');
-        
-        let isCorrect = false;
-        if (/^[0-9\+\-\*\/\(\)\.\s]+$/.test(sanitized)) {
-            const usedNumbers = sanitized.match(/\d+/g)?.map(Number) || [];
-            if (usedNumbers.length === room.fieldCards.length) {
-                const currentField = [...room.fieldCards];
-                let validCards = true;
-                for (let num of usedNumbers) {
-                    const idx = currentField.indexOf(num);
-                    if (idx === -1) { validCards = false; break; }
-                    currentField.splice(idx, 1);
-                }
-                if (validCards) {
-                    const result = evaluateExpression(sanitized);
-                    if (Math.abs(result - 15) < 1e-9) {
-                        isCorrect = true;
-                    }
-                }
-            }
-        }
-
-        if (isCorrect) {
-            player.score++;
-            room.isReviewing = true;
-            room.lastCorrectUser = player.username;
-            room.lastExpression = expr;
-            room.message = `⏰ 15秒猶予終了間際！ ${player.username} が正解！ 「${expr} = 15」`;
-            io.to(room.roomId).emit('updateState', room);
-
-            setTimeout(async () => {
-                if (!rooms[room.roomId] || rooms[room.roomId] !== room) return;
-                if (player.score >= 3) {
-                    finishGame(room, player);
-                } else {
-                    room.currentRound++;
-                    room.isReviewing = false;
-                    room.lastCorrectUser = null;
-                    initGame(room);
-                    io.to(room.roomId).emit('updateState', room);
-                }
-            }, 10000);
-        } else {
-            room.message = `⏰ 15秒経過：${player.username} の解答は不正解でした。次の問題へ進みます。`;
-            initGame(room);
-            io.to(room.roomId).emit('updateState', room);
-        }
-    } catch (e) {
-        room.message = `⏰ 15秒経過：計算が無効でした。次の問題へ進みます。`;
-        initGame(room);
-        io.to(room.roomId).emit('updateState', room);
-    }
-}
-
-async function finishGame(room, winnerPlayer) {
+async function finishGame(room) {
     room.isGameOver = true;
     const sortedPlayers = [...room.players].sort((a, b) => b.score - a.score);
     const totalPlayers = sortedPlayers.length;
@@ -382,15 +317,13 @@ io.on('connection', (socket) => {
                     rating: user.rating,
                     score: 0,
                     passRequested: false,
-                    currentExpression: '',
-                    hasRejectedGrace: false
+                    currentExpression: ''
                 }],
                 deck: [],
                 fieldCards: [],
                 currentRound: 1,
                 isReviewing: false,
                 isGracePeriod: false,
-                graceTargetUser: null,
                 graceTimer: null,
                 isGameOver: false,
                 message: `${user.username} が部屋を作成しました。メンバーを待っています...`
@@ -426,8 +359,7 @@ io.on('connection', (socket) => {
                 rating: user.rating,
                 score: 0,
                 passRequested: false,
-                currentExpression: '',
-                hasRejectedGrace: false
+                currentExpression: ''
             });
 
             socket.join(roomId);
@@ -452,29 +384,6 @@ io.on('connection', (socket) => {
         const player = room.players.find(p => p.id === socket.id);
         if (player) {
             player.currentExpression = expression;
-        }
-    });
-
-    socket.on('acceptPass', ({ roomId }) => {
-        const room = rooms[roomId];
-        if (!room || !room.isGracePeriod) return;
-        
-        if (room.graceTimer) {
-            clearTimeout(room.graceTimer);
-            room.graceTimer = null;
-        }
-        room.message = 'パスが承諾されました。新しい問題に切り替えます！';
-        initGame(room);
-        io.to(roomId).emit('updateState', room);
-    });
-
-    socket.on('rejectPass', ({ roomId }) => {
-        const room = rooms[roomId];
-        if (!room) return;
-        const player = room.players.find(p => p.id === socket.id);
-        if (player) {
-            player.hasRejectedGrace = true;
-            socket.emit('updateState', room);
         }
     });
 
@@ -504,12 +413,6 @@ io.on('connection', (socket) => {
         const player = room.players.find(p => p.id === socket.id);
         if (!player) return;
 
-        if (room.isGracePeriod && room.graceTimer) {
-            clearTimeout(room.graceTimer);
-            room.graceTimer = null;
-            room.isGracePeriod = false;
-        }
-
         try {
             const sanitized = expression.replace(/×/g, '*').replace(/÷/g, '/');
             if (!/^[0-9\+\-\*\/\(\)\.\s]+$/.test(sanitized)) throw new Error('無効な文字');
@@ -533,6 +436,13 @@ io.on('connection', (socket) => {
             const result = evaluateExpression(sanitized);
 
             if (Math.abs(result - 15) < 1e-9) {
+                // 15秒猶予中であっても、正解すればその人のもの（承認）
+                if (room.graceTimer) {
+                    clearTimeout(room.graceTimer);
+                    room.graceTimer = null;
+                }
+                room.isGracePeriod = false;
+
                 player.score++;
                 room.isReviewing = true;
                 room.players.forEach(p => p.passRequested = false);
@@ -544,7 +454,7 @@ io.on('connection', (socket) => {
                 setTimeout(async () => {
                     if (!rooms[roomId] || rooms[roomId] !== room) return;
                     if (player.score >= 3) {
-                        finishGame(room, player);
+                        finishGame(room);
                     } else {
                         room.currentRound++;
                         room.isReviewing = false;
