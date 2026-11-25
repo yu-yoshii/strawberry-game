@@ -12,16 +12,19 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
 const VERSION = "v2.0.1";
-const MONGO_URL = 'mongodb+srv://e221239_db_user:Y0u667841you@cluster0.yxjjzel.mongodb.net/strawberry_kingdom?retryWrites=true&w=majority&appName=Cluster0';
-const DB_NAME = 'strawberry_kingdom';
+const MONGO_URL = process.env.MONGO_URL;
+const DB_NAME = process.env.MONGO_DB_NAME || 'strawberry_kingdom';
 
 let db, usersCollection;
 let rooms = {};
 
 async function startServer() {
     try {
+        if (!MONGO_URL) {
+            throw new Error('MONGO_URLが環境変数に設定されていません');
+        }
         const client = await MongoClient.connect(MONGO_URL);
-        console.log('MongoDB接続完了:', MONGO_URL);
+        console.log(`MongoDB接続完了: ${DB_NAME}`);
         db = client.db(DB_NAME);
         usersCollection = db.collection('users');
         const PORT = process.env.PORT || 3000;

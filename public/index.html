@@ -3,39 +3,131 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>いちご王国オンライン</title>
+    <title>いちごミックス 15</title>
     <style>
         * { box-sizing: border-box; }
-        body { font-family: sans-serif; text-align: center; background: #fff0f5; color: #333; margin: 0; padding: 10px; position: relative; overflow-x: hidden; }
-        
-        h1 { font-size: 1.8rem; margin: 10px 0; }
-        h3 { font-size: 1.2rem; }
+        :root {
+            --ink: #2f2231;
+            --berry: #e74b79;
+            --berry-dark: #c72e61;
+            --cream: #fffaf3;
+            --mint: #73b89b;
+        }
+        body {
+            font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif;
+            text-align: center;
+            color: var(--ink);
+            margin: 0;
+            min-height: 100vh;
+            padding: 18px;
+            position: relative;
+            overflow-x: hidden;
+            background:
+                radial-gradient(circle at 12% 8%, rgba(255,255,255,.95) 0 7%, transparent 7.2%),
+                radial-gradient(circle at 88% 18%, rgba(255,255,255,.8) 0 5%, transparent 5.2%),
+                linear-gradient(145deg, #ffe6e9 0%, #fff7e9 52%, #e9f7ef 100%);
+        }
+        body::before, body::after {
+            content: "";
+            position: fixed;
+            width: 280px;
+            height: 280px;
+            border-radius: 50%;
+            filter: blur(12px);
+            opacity: .24;
+            z-index: -1;
+        }
+        body::before { background: #ff91a7; left: -170px; bottom: 5%; }
+        body::after { background: #9edbbd; right: -190px; top: 8%; }
 
-        .card { width: 50px; height: 75px; background: white; border: 2px solid #ff69b4; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; cursor: pointer; margin: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); user-select: none; }
-        .card:hover { background: #ffe4e1; }
-        
-        .calc-btn { min-width: 45px; height: 45px; font-size: 18px; margin: 3px; padding: 0 8px; background: #ff69b4; color: white; border: none; border-radius: 8px; cursor: pointer; user-select: none; white-space: nowrap; }
-        .calc-btn:active { background: #db0073; }
-        
-        input, button.main-btn { padding: 10px; font-size: 16px; border-radius: 5px; margin: 5px auto; width: 100%; max-width: 320px; display: block; }
-        button.main-btn { background: #ff1493; color: white; border: none; cursor: pointer; font-weight: bold; }
-        button.main-btn:hover { background: #db0073; }
-        button.main-btn:disabled { background: #ccc !important; cursor: not-allowed; }
+        h1 { font-size: clamp(1.65rem, 5vw, 2.25rem); margin: 6px 0 18px; letter-spacing: -.04em; }
+        h3 { font-size: 1.05rem; }
+        .screen { display: none; width: 100%; max-width: 760px; margin: 0 auto; }
+        .screen.active { display: block; animation: screenIn .35s ease-out; }
+        @keyframes screenIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
-        .screen { display: none; width: 100%; max-width: 600px; margin: 0 auto; }
-        .screen.active { display: block; }
+        .panel {
+            background: rgba(255,255,255,.88);
+            border: 1px solid rgba(255,255,255,.9);
+            border-radius: 28px;
+            box-shadow: 0 18px 50px rgba(116,76,89,.12);
+            backdrop-filter: blur(12px);
+        }
 
-        #message { font-size: 1rem; color: #d81b60; font-weight: bold; margin: 10px 0; padding: 10px; background: #ffe4e1; border-radius: 8px; display: block; }
-        .version-tag { position: fixed; bottom: 5px; right: 10px; font-size: 12px; color: #888; background: rgba(255,255,255,0.8); padding: 4px 8px; border-radius: 4px; }
-        
-        #timer-box { font-size: 16px; color: #c71585; font-weight: bold; margin-top: 5px; }
-        #pass-status { font-size: 14px; color: #ff8c00; font-weight: bold; margin: 5px; }
+        .card {
+            width: clamp(58px, 16vw, 82px);
+            height: clamp(82px, 21vw, 112px);
+            background: linear-gradient(145deg, #fff 0%, #fff8f8 100%);
+            border: 2px solid rgba(231,75,121,.16);
+            border-radius: 19px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: clamp(25px, 7vw, 38px);
+            color: var(--berry-dark);
+            font-weight: 900;
+            cursor: pointer;
+            margin: 5px;
+            box-shadow: 0 9px 18px rgba(181,91,111,.14), inset 0 -5px 0 rgba(231,75,121,.05);
+            user-select: none;
+            transition: transform .16s cubic-bezier(.2,.8,.2,1), box-shadow .16s, border .16s;
+        }
+        .card:hover { transform: translateY(-7px) rotate(-1deg); border-color: rgba(231,75,121,.5); box-shadow: 0 14px 24px rgba(181,91,111,.18); }
+        .card:active { transform: translateY(-2px) scale(.94); }
+        .card.used { animation: cardPop .3s ease-out; }
+        @keyframes cardPop { 50% { transform: scale(1.12) translateY(-8px); } }
 
-        .lobby-container { display: flex; flex-direction: column; gap: 15px; margin-top: 15px; align-items: center; }
-        .lobby-box { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 100%; max-width: 350px; text-align: left; }
-        .lobby-box h3 { margin-top: 0; color: #d81b60; border-bottom: 2px solid #ffe4e1; padding-bottom: 5px; }
-        .ranking-list, .room-list { max-height: 160px; overflow-y: auto; font-size: 14px; }
-        .room-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+        .calc-btn {
+            min-width: 48px;
+            height: 48px;
+            font-size: 20px;
+            margin: 3px;
+            padding: 0 12px;
+            background: #fff;
+            color: var(--ink);
+            border: 1px solid #eadde1;
+            border-radius: 15px;
+            cursor: pointer;
+            font-weight: 800;
+            box-shadow: 0 5px 12px rgba(96,65,78,.08);
+            transition: .12s ease;
+            user-select: none;
+        }
+        .calc-btn:active { transform: scale(.92); background: #fff0f3; }
+
+        input, button.main-btn { padding: 13px 16px; font-size: 16px; border-radius: 14px; margin: 6px auto; width: 100%; max-width: 420px; display: block; }
+        input { border: 1.5px solid #eadde1; background: #fff; outline: none; transition: .15s; }
+        input:focus { border-color: var(--berry); box-shadow: 0 0 0 4px rgba(231,75,121,.10); }
+        button.main-btn { background: var(--berry); color: white; border: none; cursor: pointer; font-weight: 800; box-shadow: 0 8px 18px rgba(231,75,121,.20); transition: .15s; }
+        button.main-btn:hover { background: var(--berry-dark); transform: translateY(-2px); }
+        button.main-btn:active { transform: translateY(1px) scale(.98); }
+        button.main-btn:disabled { background: #ccc !important; cursor: not-allowed; transform: none; box-shadow: none; }
+
+        #message {
+            min-height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            color: var(--berry-dark);
+            font-weight: 800;
+            margin: 10px 0;
+            padding: 10px 16px;
+            background: rgba(255,255,255,.78);
+            border: 1px solid rgba(231,75,121,.10);
+            border-radius: 16px;
+        }
+        .version-tag { position: fixed; bottom: 5px; right: 10px; font-size: 11px; color: #9a8790; background: rgba(255,255,255,.75); padding: 4px 8px; border-radius: 999px; }
+
+        #timer-box { height: 24px; font-size: 15px; color: var(--berry-dark); font-weight: 800; }
+        #pass-status { min-height: 21px; font-size: 13px; color: #b37424; font-weight: 700; }
+
+        .lobby-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 15px; }
+        .lobby-box { background: rgba(255,255,255,.88); padding: 15px; border-radius: 20px; box-shadow: 0 10px 28px rgba(116,76,89,.09); width: 100%; text-align: left; }
+        .lobby-box h3 { margin-top: 0; color: var(--berry-dark); border-bottom: 1px solid #f2e1e6; padding-bottom: 9px; }
+        .ranking-list, .room-list { max-height: 180px; overflow-y: auto; font-size: 14px; }
+        .room-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #f4edf0; }
+        .room-item button { flex: 0 0 auto; }
 
         @keyframes celebration {
             0% { transform: translate(-50%, -50%) scale(0.5) rotate(-5deg); opacity: 0; }
@@ -83,9 +175,40 @@
             max-width: 380px;
         }
 
-        @media (min-width: 768px) {
-            .lobby-container { flex-direction: row; justify-content: center; }
-            input, button.main-btn { width: auto; min-width: 200px; }
+        .game-shell { background: rgba(255,255,255,.82); border-radius: 28px; padding: 20px; box-shadow: 0 18px 50px rgba(116,76,89,.12); }
+        .game-top { display: flex; justify-content: space-between; align-items: center; }
+        .score-pills { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+        .score-pill { background: rgba(255,255,255,.9); border: 1px solid #f0dfe4; border-radius: 999px; padding: 7px 11px; font-size: 12px; }
+        #expression { min-height: 54px; font-size: 22px; letter-spacing: .04em; }
+        #submit-btn { max-width: 420px; height: 54px; font-size: 17px; border-radius: 17px; }
+        .secondary-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-width: 420px; margin: 0 auto; }
+        .secondary-actions button { max-width: none; margin: 0; }
+        #toast {
+            position: fixed;
+            left: 50%;
+            bottom: 28px;
+            transform: translate(-50%, 20px);
+            background: var(--ink);
+            color: white;
+            border-radius: 999px;
+            padding: 12px 18px;
+            font-size: 14px;
+            font-weight: 700;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 1000;
+            transition: .25s ease;
+            max-width: calc(100% - 30px);
+        }
+        #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+        @media (max-width: 720px) {
+            body { padding: 10px 8px 24px; }
+            .lobby-container { grid-template-columns: 1fr; }
+            .lobby-box { max-height: none; }
+            .game-shell { padding: 13px 8px 18px; border-radius: 22px; }
+            .card { margin: 3px; }
+            .secondary-actions { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -93,12 +216,14 @@
 
     <div id="victory-banner" class="victory-banner">🍓 👑 BATTLE FINISHED! 👑 🍓<br><span id="victory-text" style="font-size: 1.1rem;"></span></div>
     <div id="correct-banner" class="correct-banner">🎉 <span id="correct-user-name"></span> が正解！ 🎉<br><span id="correct-expr-text" style="font-size: 0.95rem;"></span></div>
+    <div id="toast"></div>
 
     <!-- 1. ログイン・新規登録画面 -->
     <div id="screen-auth" class="screen active">
-        <h1>🍓 いちご王国オンライン 🍓</h1>
-        <div style="background: white; display: inline-block; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 100%; max-width: 350px;">
-            <h3>ログイン または 新規登録</h3>
+        <h1>🍓 いちごミックス 15 🍓</h1>
+        <p style="margin:-10px 0 18px;color:#947c86;font-size:14px;">カードを組み合わせて、いちばん気持ちよく「15」を作ろう。</p>
+        <div class="panel" style="display: inline-block; padding: 24px 20px; width: 100%; max-width: 390px;">
+            <h3 style="margin:0 0 14px;">プレイヤー登録</h3>
             <input type="text" id="username" placeholder="ユーザー名"><br>
             <input type="password" id="password" placeholder="パスワード"><br><br>
             <button class="main-btn" onclick="auth('login')">ログイン</button>
@@ -109,8 +234,8 @@
 
     <!-- 2. ロビー画面 -->
     <div id="screen-lobby" class="screen">
-        <h1>🍓 ロビー 🍓</h1>
-        <div style="background: white; display: inline-block; padding: 15px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 100%;">
+        <h1>🍓 いちごミックス 15 🍓</h1>
+        <div class="panel" style="display: inline-block; padding: 18px; width: 100%;">
             <h3 id="welcome-msg" style="margin-bottom: 5px;"></h3>
             <p style="color: #666; font-size: 13px;">ルール：場の5枚のカードをすべて使って「15」を早く作れ！（3本先取）</p>
             
@@ -138,8 +263,8 @@
 
     <!-- 3. ルーム待機・メンバー集め画面 -->
     <div id="screen-room" class="screen">
-        <h1>🍓 ルーム待機中 🍓</h1>
-        <div style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+        <h1>🍓 集合タイム 🍓</h1>
+        <div class="panel" style="padding: 20px;">
             <p id="room-host-msg" style="font-weight: bold; color: #d81b60;"></p>
             <h3>参加メンバー</h3>
             <div id="room-members-list" style="font-size: 16px; margin-bottom: 15px; text-align: left; display: inline-block;"></div>
@@ -157,35 +282,40 @@
 
     <!-- 4. ゲーム画面 -->
     <div id="screen-game" class="screen">
-        <h2 id="room-info" style="font-size: 1.3rem;">ラウンド 1</h2>
-        <div id="message">読み込み中...</div>
-        <div id="timer-box"></div>
-        <div id="pass-status"></div>
-
-        <h3 style="font-size: 1rem;">場のカード（タップで式に入力）</h3>
-        <div id="field-cards"></div>
-
-        <div style="margin-top: 10px;">
-            <input type="text" id="expression" oninput="onExpressionInput()" style="width: 100%; max-width: 350px; text-align: center; font-size: 20px;" placeholder="例: (1+2)*(3+4)-5"><br>
-            <div style="margin: 8px 0;">
-                <button class="calc-btn" onclick="appendExpr('+')">+</button>
-                <button class="calc-btn" onclick="appendExpr('-')">-</button>
-                <button class="calc-btn" onclick="appendExpr('*')">×</button>
-                <button class="calc-btn" onclick="appendExpr('/')">÷</button>
-                <button class="calc-btn" onclick="appendExpr('(')">(</button>
-                <button class="calc-btn" onclick="appendExpr(')')">)</button>
-                <button class="calc-btn" onclick="backspaceExpr()" style="background:#888;" title="1文字消す">←</button>
-                <button class="calc-btn" onclick="clearExpr()" style="background:#555;">クリア</button>
+        <div class="game-shell">
+            <div class="game-top">
+                <h2 id="room-info" style="font-size: 1.15rem;margin:0;">ラウンド 1</h2>
+                <div id="timer-box"></div>
             </div>
-            <button id="submit-btn" class="main-btn" onclick="sendCalc()" style="font-size: 16px; background: #28a745;">「15」で早押し解答！</button>
-            <button id="pass-btn" class="main-btn" onclick="togglePass()" style="font-size: 14px; background: #ff8c00;">パスを希望する</button>
-            <button id="giveup-btn" class="main-btn" onclick="confirmLeaveGame()" style="font-size: 14px; background: #dc3545;">退出する（レートが下がります）</button>
-            <br>
-            <button id="back-lobby-btn" class="main-btn" onclick="returnToLobby()" style="background: #666; display: none;">ロビーに戻る</button>
-        </div>
+            <div id="message">読み込み中...</div>
+            <div id="pass-status"></div>
 
-        <h3 style="font-size: 1rem; margin-top: 15px;">対戦状況</h3>
-        <div id="status" style="font-size: 14px;"></div>
+            <h3 style="font-size: 1rem;margin:12px 0 6px;">場のカードをタップして式を作る</h3>
+            <div id="field-cards"></div>
+
+            <div style="margin-top: 12px;">
+                <input type="text" id="expression" oninput="onExpressionInput()" placeholder="例: (1+2)*(3+4)-5"><br>
+                <div style="margin: 8px 0;">
+                    <button class="calc-btn" onclick="appendExpr('+')">＋</button>
+                    <button class="calc-btn" onclick="appendExpr('-')">－</button>
+                    <button class="calc-btn" onclick="appendExpr('*')">×</button>
+                    <button class="calc-btn" onclick="appendExpr('/')">÷</button>
+                    <button class="calc-btn" onclick="appendExpr('(')">(</button>
+                    <button class="calc-btn" onclick="appendExpr(')')">)</button>
+                    <button class="calc-btn" onclick="backspaceExpr()" style="color:#777;" title="1文字消す">←</button>
+                    <button class="calc-btn" onclick="clearExpr()">クリア</button>
+                </div>
+                <button id="submit-btn" class="main-btn" onclick="sendCalc()">「15」に変身！</button>
+                <div class="secondary-actions">
+                    <button id="pass-btn" class="main-btn" onclick="togglePass()" style="font-size: 14px; background: #b58a5a;">パスを希望する</button>
+                    <button id="giveup-btn" class="main-btn" onclick="confirmLeaveGame()" style="font-size: 14px; background: #936b76;">試合から出る</button>
+                </div>
+                <button id="back-lobby-btn" class="main-btn" onclick="returnToLobby()" style="background: #666; display: none;">ロビーに戻る</button>
+            </div>
+
+            <h3 style="font-size: 1rem; margin-top: 18px;">対戦状況</h3>
+            <div id="status" class="score-pills"></div>
+        </div>
     </div>
 
     <div id="version-display" class="version-tag">v2.0.1</div>
@@ -468,6 +598,9 @@
                 card.innerText = num;
                 card.onclick = () => {
                     if (!isLocked) appendExpr(num.toString());
+                    card.classList.remove('used');
+                    void card.offsetWidth;
+                    card.classList.add('used');
                 };
                 fieldDiv.appendChild(card);
             });
@@ -475,8 +608,7 @@
             let statusHtml = '';
             state.players.forEach(p => {
                 const isMe = p.dbId === currentUser?.id;
-                statusHtml += `${isMe ? '<b>[あなた]</b> ' : ''}${p.username} (レート: ${p.rating})<br>`;
-                statusHtml += `獲得ポイント: 🏆 ${p.score} / 3勝<br><br>`;
+                statusHtml += `<div class="score-pill">${isMe ? 'あなた · ' : ''}${p.username}　🏆 ${p.score} / 3</div>`;
             });
             document.getElementById('status').innerHTML = statusHtml;
         }
@@ -501,9 +633,16 @@
             socket.emit('requestPass', { roomId: currentGameRoom, pass: isPassRequested });
         }
 
-        socket.on('notify', (msg) => {
-            alert(msg);
-        });
+        let toastTimer = null;
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.innerText = msg;
+            toast.classList.add('show');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
+        }
+
+        socket.on('notify', (msg) => showToast(msg));
 
         function appendExpr(val) {
             const input = document.getElementById('expression');
@@ -543,6 +682,13 @@
             if (!expression.trim()) return;
             socket.emit('tryCalc', { roomId: currentGameRoom, expression });
         }
+
+        document.getElementById('expression').addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                sendCalc();
+            }
+        });
 
         function confirmLeaveGame() {
             if (confirm('途中で退出するとレートが16下がります。本当に退出しますか？')) {
